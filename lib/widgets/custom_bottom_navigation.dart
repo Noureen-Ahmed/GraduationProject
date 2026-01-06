@@ -1,7 +1,10 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import '../providers/app_session_provider.dart';
+import '../storage_services.dart';
 
-class CustomBottomNavigation extends StatelessWidget {
+class CustomBottomNavigation extends ConsumerWidget {
   final String currentRoute;
   
   const CustomBottomNavigation({
@@ -43,7 +46,14 @@ class CustomBottomNavigation extends StatelessWidget {
   ];
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    // Get current user to determine isDoctor
+    final sessionState = ref.watch(appSessionControllerProvider);
+    final isDoctor = sessionState.maybeWhen(
+      authenticated: (user) => StorageService.isDoctorEmail(user.email),
+      orElse: () => false, // Default to student if not authenticated
+    );
+
     return Container(
       height: 80,
       decoration: const BoxDecoration(
@@ -65,10 +75,25 @@ class CustomBottomNavigation extends StatelessWidget {
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceAround,
         children: tabs.map((tab) {
-          final isActive = currentRoute == tab['route'];
+          final isHomeTab = tab['route'] == '/home';
+          final isActive = isHomeTab 
+              ? currentRoute.startsWith('/home') 
+              : currentRoute == tab['route'];
           
+          // Determine label for Tasks tab based on user type
+          String label = tab['label'];
+          if (tab['route'] == '/tasks' && isDoctor) {
+            label = 'Notifyme';
+          }
+
           return GestureDetector(
-            onTap: () => context.go(tab['route']),
+            onTap: () {
+              if (isHomeTab) {
+                context.go('/home/$isDoctor');
+              } else {
+                context.go(tab['route']);
+              }
+            },
             child: Container(
               padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 8),
               child: Column(
@@ -81,7 +106,7 @@ class CustomBottomNavigation extends StatelessWidget {
                   ),
                   const SizedBox(height: 4),
                   Text(
-                    tab['label'],
+                    label,
                     style: TextStyle(
                       fontSize: 12,
                       fontWeight: isActive ? FontWeight.w600 : FontWeight.normal,

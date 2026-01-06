@@ -1,18 +1,21 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 import 'package:go_router/go_router.dart';
 import 'AddTask.dart';
 import 'Taskdetails.dart';
 import '../../notification_service.dart';
+import '../../providers/app_session_provider.dart';
+import '../../storage_services.dart';
 
-class TasksPage extends StatefulWidget {
+class TasksPage extends ConsumerStatefulWidget {
   const TasksPage({super.key});
 
   @override
-  State<TasksPage> createState() => _TasksPageState();
+  ConsumerState<TasksPage> createState() => _TasksPageState();
 }
 
-class _TasksPageState extends State<TasksPage> {
+class _TasksPageState extends ConsumerState<TasksPage> {
   List<Map<String, dynamic>> tasks = [
     {
       "title": "Complete Data Structures Assignment",
@@ -67,6 +70,15 @@ class _TasksPageState extends State<TasksPage> {
 
   @override
   Widget build(BuildContext context) {
+    final session = ref.watch(appSessionControllerProvider);
+    final isDoctor = session.maybeWhen(
+      authenticated: (user) => StorageService.isDoctorEmail(user.email),
+      orElse: () => false,
+    );
+
+    final String itemLabel = isDoctor ? 'Note' : 'Task';
+    final String itemsLabel = isDoctor ? 'Notes' : 'Tasks';
+
     return Scaffold(
       appBar: AppBar(
         backgroundColor: Colors.white,
@@ -74,12 +86,12 @@ class _TasksPageState extends State<TasksPage> {
         leading: IconButton(
           icon: const Icon(Icons.arrow_back, color: Colors.black),
           onPressed: () {
-            context.go('/home');
+            context.go('/home/$isDoctor');
           },
         ),
-        title: const Text(
-          'Tasks',
-          style: TextStyle(color: Colors.black, fontWeight: FontWeight.w600),
+        title: Text(
+          itemsLabel,
+          style: const TextStyle(color: Colors.black, fontWeight: FontWeight.w600),
         ),
       ),
       body: SingleChildScrollView(
@@ -94,7 +106,7 @@ class _TasksPageState extends State<TasksPage> {
               children: [
                 statBox(
                   '${tasks.where((t) => !t["completed"]).length}',
-                  'Pending Tasks',
+                  'Pending $itemsLabel',
                 ),
                 const SizedBox(width: 16),
                 statBox(
@@ -119,16 +131,16 @@ class _TasksPageState extends State<TasksPage> {
                   addTask(result);
                 }
               },
-              child: const Text(
-                '+ Add New Task',
-                style: TextStyle(color: Colors.white),
+              child: Text(
+                '+ Add New $itemLabel',
+                style: const TextStyle(color: Colors.white),
               ),
             ),
 
             const SizedBox(height: 20),
-            const Text(
-              'Pending Tasks',
-              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+            Text(
+              'Pending $itemsLabel',
+              style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
             ),
             const SizedBox(height: 10),
             ...tasks
@@ -138,9 +150,9 @@ class _TasksPageState extends State<TasksPage> {
                 .map((e) => taskCard(e.key, e.value)),
 
             const SizedBox(height: 20),
-            const Text(
-              'Completed Tasks',
-              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+            Text(
+              'Completed $itemsLabel',
+              style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
             ),
             const SizedBox(height: 10),
             ...tasks

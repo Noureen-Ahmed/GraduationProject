@@ -8,6 +8,8 @@ import '../providers/task_provider.dart';
 import '../models/announcement.dart';
 import '../models/task.dart';
 import '../models/user.dart';
+import '../providers/app_session_provider.dart';
+import '../storage_services.dart';
 
 enum ContentType { lecture, assignment, exam }
 
@@ -44,7 +46,14 @@ class _AddContentScreenState extends ConsumerState<AddContentScreen> {
                 child: Row(
                   children: [
                     IconButton(
-                      onPressed: () => context.go('/home'),
+                      onPressed: () {
+                        final session = ref.read(appSessionControllerProvider);
+                        final isDoctor = session.maybeWhen(
+                          authenticated: (user) => StorageService.isDoctorEmail(user.email),
+                          orElse: () => false,
+                        );
+                        context.go('/home/$isDoctor');
+                      },
                       icon: const Icon(Icons.arrow_back, size: 24),
                     ),
                     const Text(
@@ -90,7 +99,14 @@ class _AddContentScreenState extends ConsumerState<AddContentScreen> {
               child: Row(
                 children: [
                   IconButton(
-                    onPressed: () => context.go('/home'),
+                    onPressed: () {
+                      final session = ref.read(appSessionControllerProvider);
+                      final isDoctor = session.maybeWhen(
+                        authenticated: (user) => StorageService.isDoctorEmail(user.email),
+                        orElse: () => false,
+                      );
+                      context.go('/home/$isDoctor');
+                    },
                     icon: const Icon(Icons.arrow_back, size: 24),
                   ),
                   const Text(

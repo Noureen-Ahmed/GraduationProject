@@ -8,6 +8,8 @@ import '../widgets/schedule_event_card.dart';
 import '../widgets/loading_shimmer.dart';
 import 'event_detail_screen.dart';
 import 'package:intl/intl.dart';
+import '../providers/app_session_provider.dart';
+import '../storage_services.dart';
 
 class ScheduleScreen extends ConsumerStatefulWidget {
   const ScheduleScreen({super.key});
@@ -61,7 +63,14 @@ class _ScheduleScreenState extends ConsumerState<ScheduleScreen> {
                     children: [
                       IconButton(
                         icon: const Icon(Icons.arrow_back),
-                        onPressed: () => context.go('/home'),
+                        onPressed: () {
+                          final session = ref.read(appSessionControllerProvider);
+                          final isDoctor = session.maybeWhen(
+                            authenticated: (user) => StorageService.isDoctorEmail(user.email),
+                            orElse: () => false,
+                          );
+                          context.go('/home/$isDoctor');
+                        },
                       ),
                       const Text(
                         'Schedule',

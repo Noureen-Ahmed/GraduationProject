@@ -8,7 +8,14 @@ class StorageService {
   static const String keyPassword = 'user_password';
   static const String keyIsVerified = 'is_verified';
   static const String keySelectedCourses = 'selected_courses';
-
+  
+  /// Helper to check if email belongs to a doctor (username has non-numeric characters)
+  static bool isDoctorEmail(String email) {
+    if (!email.contains('@')) return false;
+    final username = email.split('@')[0];
+    return int.tryParse(username) == null;
+  }
+  
   // Initialize SharedPreferences
   static Future<void> init() async {
     await SharedPreferences.getInstance();

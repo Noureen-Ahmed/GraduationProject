@@ -9,6 +9,7 @@ import 'screens/schedule_screen.dart';
 import 'screens/navigate_screen.dart';
 import 'screens/profile_screen.dart';
 import 'screens/course_detail_screen.dart';
+import 'screens/dr_course_details.dart';
 import 'screens/add_content_screen.dart';
 import 'screens/notifications_screen.dart';
 import 'screens/auth/login_screen.dart';
@@ -16,8 +17,15 @@ import 'screens/auth/register_screen.dart';
 import 'screens/auth/forgot_password_screen.dart';
 import 'screens/auth/course_selection_screen.dart';
 import 'screens/auth/verification_page.dart';
+import 'screens/splash_screen.dart';
+import 'screens/welcome_screen.dart';
 import 'storage_services.dart';
 import 'notification_service.dart';
+import 'screens/student_guide/guide_selection_screen.dart';
+import 'screens/student_guide/explain_screen.dart';
+import 'screens/student_guide/explain_program.dart';
+import 'screens/guest/guest_dashboard_shell.dart';
+import 'screens/guest/guest_home_screen.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -47,8 +55,16 @@ class _StudentDashboardAppState extends ConsumerState<StudentDashboardApp> {
     super.initState();
     _router = GoRouter(
       navigatorKey: _navigatorKey,
-      initialLocation: '/register',
+      initialLocation: '/splash',
       routes: [
+        GoRoute(
+          path: '/splash',
+          builder: (context, state) => const SplashScreen(),
+        ),
+        GoRoute(
+          path: '/welcome',
+          builder: (context, state) => const WelcomeScreen(),
+        ),
         GoRoute(
           path: '/login',
           builder: (context, state) => const LoginPage(),
@@ -81,14 +97,43 @@ class _StudentDashboardAppState extends ConsumerState<StudentDashboardApp> {
             );
           },
         ),
+
+
+        ShellRoute(
+          builder: (context, state, child) {
+            return GuestDashboardShell(child: child);
+          },
+          routes: [
+            GoRoute(
+              path: '/guest/home',
+              builder: (context, state) => const GuestHomeScreen(),
+            ),
+            GoRoute(
+              path: '/guest/ar',
+              builder: (context, state) => const NavigateScreen(isGuest: true),
+            ),
+             GoRoute(
+              path: '/guest/credit',
+              builder: (context, state) => const ExplainScreen(),
+            ),
+             GoRoute(
+              path: '/guest/departments',
+              builder: (context, state) => const ExplainProgram(),
+            ),
+          ],
+        ),
         ShellRoute(
           builder: (context, state, child) {
             return DashboardShell(child: child);
           },
           routes: [
             GoRoute(
-              path: '/home',
-              builder: (context, state) => const HomeScreen(),
+              path: '/home/:isDoctor',
+              builder: (context, state) { 
+                final isDoctor = false;
+                // final isDoctor = state.pathParameters['isDoctor'] == 'true';
+                return HomeScreen(isDoctor: isDoctor);
+              },
             ),
             GoRoute(
               path: '/tasks',
@@ -111,6 +156,12 @@ class _StudentDashboardAppState extends ConsumerState<StudentDashboardApp> {
               builder: (context, state) {
                 final courseId = state.pathParameters['courseId']!;
                 return CourseDetailScreen(courseId: courseId);
+              },
+            ),
+            GoRoute(
+              path: '/dr-course/:courseId',
+              builder: (context, state) {
+                return const DrCourseDetails();
               },
             ),
             GoRoute(
@@ -137,7 +188,10 @@ class _StudentDashboardAppState extends ConsumerState<StudentDashboardApp> {
       final isAuthRoute = currentLocation.startsWith('/login') ||
           currentLocation.startsWith('/register') ||
           currentLocation.startsWith('/forgot-password') ||
-          currentLocation.startsWith('/verification'); 
+          currentLocation.startsWith('/verification') ||
+          currentLocation.startsWith('/splash') ||
+          currentLocation.startsWith('/welcome') ||
+          currentLocation.startsWith('/guest/'); 
       final isOnboardingRoute = currentLocation == '/course-selection';
 
   authState.when(
@@ -149,7 +203,8 @@ class _StudentDashboardAppState extends ConsumerState<StudentDashboardApp> {
     },
     authenticated: (user) {
       if (isAuthRoute || isOnboardingRoute) {
-        _router.go('/home');
+        final isDoctor = StorageService.isDoctorEmail(user.email);
+        _router.go('/home/$isDoctor');
       }
     },
   );

@@ -39,7 +39,7 @@ class _DashboardShellState extends ConsumerState<DashboardShell> {
           Positioned.fill(child: widget.child),
           
           // Custom header - only show on home screen
-          if (currentRoute == '/home')
+          if (currentRoute.startsWith('/home'))
             const Positioned(
               top: 0,
               left: 0,

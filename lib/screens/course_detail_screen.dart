@@ -3,6 +3,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import '../providers/course_provider.dart';
 import '../models/course.dart';
+import '../providers/app_session_provider.dart';
+import '../storage_services.dart';
 
 class CourseDetailScreen extends ConsumerStatefulWidget {
   final String courseId;
@@ -74,7 +76,14 @@ class _CourseDetailScreenState extends ConsumerState<CourseDetailScreen> {
                           children: [
                             IconButton(
                               icon: const Icon(Icons.arrow_back, color: Colors.white),
-                              onPressed: () => context.go('/home'),
+                              onPressed: () {
+                                final session = ref.read(appSessionControllerProvider);
+                                final isDoctor = session.maybeWhen(
+                                  authenticated: (user) => StorageService.isDoctorEmail(user.email),
+                                  orElse: () => false,
+                                );
+                                context.go('/home/$isDoctor');
+                              },
                             ),
                             Container(
                               width: 36,

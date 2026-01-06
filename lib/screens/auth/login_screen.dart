@@ -74,7 +74,8 @@ class _LoginPageState extends ConsumerState<LoginPage> {
             backgroundColor: Colors.green,
           ),
         );
-        context.go('/home');
+        final isDoctor = StorageService.isDoctorEmail(emailController.text.trim());
+        context.go('/home/$isDoctor');
       } else {
         setState(() {
           errorMessage = result.error.message ?? 'Invalid email or password';

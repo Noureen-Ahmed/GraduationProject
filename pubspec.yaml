@@ -31,6 +31,7 @@ dependencies:
   image_picker_ios: ^0.8.12
   image_picker_windows: ^0.2.2
   image_picker_for_web: ^3.1.0
+  video_player: ^2.8.2
 
 dev_dependencies:
   flutter_test:
@@ -45,3 +46,4 @@ flutter:
   uses-material-design: true
   assets:
     - assets/mock/
+    - assets/splash screen/

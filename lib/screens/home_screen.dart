@@ -14,8 +14,8 @@ import '../providers/schedule_provider.dart';
 import 'package:intl/intl.dart';
 
 class HomeScreen extends ConsumerStatefulWidget {
-  const HomeScreen({super.key});
-
+  const HomeScreen({super.key, required this.isDoctor});
+  final bool isDoctor;
   @override
   ConsumerState<HomeScreen> createState() => _HomeScreenState();
 }
@@ -186,6 +186,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                             crossAxisSpacing: 12,
                             childAspectRatio: 1.1, // Taller cards for better presence
                             children: [
+                              if (!widget.isDoctor) 
                               QuickAction(
                                 title: 'Assignments',
                                 icon: const Icon(
@@ -214,8 +215,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                                   color: Color(0xFF16A34A), // green-600
                                 ),
                                 backgroundColor: const Color(0xFFF0FDF4), // green-50
-                                onTap: () =>
-                                    context.go('/course/1'), // Navigate to first course
+                                onTap: () => widget.isDoctor
+                                    ? context.go('/dr-course/1')
+                                    : context.go('/course/1'),
                               ),
                             ],
                           ),

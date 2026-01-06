@@ -4,6 +4,8 @@ import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 import '../models/announcement.dart';
 import '../providers/announcement_provider.dart';
+import '../providers/app_session_provider.dart';
+import '../storage_services.dart';
 
 class NotificationsScreen extends ConsumerStatefulWidget {
   const NotificationsScreen({super.key});
@@ -33,7 +35,14 @@ class _NotificationsScreenState extends ConsumerState<NotificationsScreen> {
                   Row(
                     children: [
                       IconButton(
-                        onPressed: () => context.go('/home'),
+                        onPressed: () {
+                          final session = ref.read(appSessionControllerProvider);
+                          final isDoctor = session.maybeWhen(
+                            authenticated: (user) => StorageService.isDoctorEmail(user.email),
+                            orElse: () => false,
+                          );
+                          context.go('/home/$isDoctor');
+                        },
                         icon: const Icon(Icons.arrow_back, size: 24),
                         style: IconButton.styleFrom(
                           backgroundColor: Colors.transparent,

@@ -1,11 +1,16 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import '../providers/app_session_provider.dart';
+import '../storage_services.dart';
 
-class NavigateScreen extends StatelessWidget {
-  const NavigateScreen({super.key});
+class NavigateScreen extends ConsumerWidget {
+  final bool isGuest;
+  
+  const NavigateScreen({super.key, this.isGuest = false});
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     return Scaffold(
       backgroundColor: const Color(0xFFF9FAFB),
       body: SafeArea(
@@ -19,7 +24,22 @@ class NavigateScreen extends StatelessWidget {
                 children: [
                   IconButton(
                     icon: const Icon(Icons.arrow_back),
-                    onPressed: () => context.go('/home'),
+                    onPressed: () {
+                      if (isGuest) {
+                        if (context.canPop()) {
+                          context.pop();
+                        } else {
+                          context.go('/welcome');
+                        }
+                      } else {
+                        final session = ref.read(appSessionControllerProvider);
+                        final isDoctor = session.maybeWhen(
+                          authenticated: (user) => StorageService.isDoctorEmail(user.email),
+                          orElse: () => false,
+                        );
+                        context.go('/home/$isDoctor');
+                      }
+                    },
                   ),
                   const Text(
                     'Navigate',
@@ -35,11 +55,12 @@ class NavigateScreen extends StatelessWidget {
             
             // Content
             Expanded(
-              child: Padding(
+              child: SingleChildScrollView(
                 padding: const EdgeInsets.all(24),
                 child: Column(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
+                    const SizedBox(height: 20),
                     // Icon with gradient background
                     Container(
                       width: 96,
@@ -142,6 +163,7 @@ class NavigateScreen extends StatelessWidget {
                         ),
                       ),
                     ),
+                    const SizedBox(height: 20),
                   ],
                 ),
               ),

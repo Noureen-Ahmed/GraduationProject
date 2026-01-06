@@ -6,6 +6,7 @@ import '../providers/app_mode_provider.dart';
 import '../models/user.dart';
 import '../widgets/user_avatar.dart';
 import 'edit_profile_screen.dart';
+import '../storage_services.dart';
 
 class ProfileScreen extends ConsumerWidget {
   const ProfileScreen({super.key});
@@ -22,7 +23,7 @@ class ProfileScreen extends ConsumerWidget {
 
           return CustomScrollView(
             slivers: [
-              _buildSliverHeader(context, user),
+              _buildSliverHeader(context, user, ref),
               SliverToBoxAdapter(
                 child: Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
@@ -77,7 +78,7 @@ class ProfileScreen extends ConsumerWidget {
     );
   }
 
-  Widget _buildSliverHeader(BuildContext context, User user) {
+  Widget _buildSliverHeader(BuildContext context, User user, WidgetRef ref) {
     return SliverAppBar(
       expandedHeight: 280,
       pinned: true,
@@ -152,7 +153,10 @@ class ProfileScreen extends ConsumerWidget {
       ),
       leading: IconButton(
         icon: const Icon(Icons.arrow_back, color: Color(0xFFFDC800)),
-        onPressed: () => context.go('/home'),
+        onPressed: () {
+          final isDoctor = StorageService.isDoctorEmail(user.email);
+          context.go('/home/$isDoctor');
+        },
       ),
     );
   }
