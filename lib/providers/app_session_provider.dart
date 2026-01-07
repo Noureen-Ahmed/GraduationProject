@@ -35,6 +35,16 @@ final authStateProvider = Provider<AuthState>((ref) {
   }
 });
 
+final currentUserProvider = Provider<AsyncValue<User?>>((ref) {
+  final state = ref.watch(appSessionControllerProvider);
+  return state.maybeWhen(
+    authenticated: (user) => AsyncValue.data(user),
+    loading: () => const AsyncValue.loading(),
+    error: (e) => AsyncValue.error(e, StackTrace.current),
+    orElse: () => const AsyncValue.data(null),
+  );
+});
+
 class AppSessionController extends StateNotifier<AppSessionState> {
   final AuthRepository _authRepository;
   
@@ -97,7 +107,7 @@ class AppSessionController extends StateNotifier<AppSessionState> {
       
       return result.fold(
         (user) {
-          state = AppSessionState.authenticated(user);
+          // Do not log in immediately. Wait for verification.
           return Result.success(user);
         },
         (error) {

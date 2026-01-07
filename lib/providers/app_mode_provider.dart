@@ -3,8 +3,15 @@ import '../models/user.dart';
 import '../repositories/auth_repository.dart';
 import 'app_session_provider.dart';
 
-final currentUserProvider = StreamProvider<User?>((ref) {
-  return ref.watch(authRepositoryProvider).watchUser();
+/// Provides the current user from the session state
+/// This watches the appSessionControllerProvider for immediate updates
+final currentUserProvider = Provider<AsyncValue<User?>>((ref) {
+  final sessionState = ref.watch(appSessionControllerProvider);
+  return sessionState.maybeWhen(
+    authenticated: (user) => AsyncValue.data(user),
+    loading: () => const AsyncValue.loading(),
+    orElse: () => const AsyncValue.data(null),
+  );
 });
 
 final appModeControllerProvider = StateNotifierProvider<AppModeController, AppMode>((ref) {

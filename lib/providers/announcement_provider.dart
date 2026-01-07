@@ -3,11 +3,11 @@ import '../models/announcement.dart';
 import '../repositories/announcement_repository.dart';
 
 final announcementRepositoryProvider = Provider<AnnouncementRepository>((ref) {
-  return MockAnnouncementRepository();
+  return ApiAnnouncementRepository();
 });
 
-final announcementsProvider = StreamProvider<List<Announcement>>((ref) {
-  return ref.watch(announcementRepositoryProvider).watchAnnouncements();
+final announcementsProvider = FutureProvider<List<Announcement>>((ref) {
+  return ref.watch(announcementRepositoryProvider).getAnnouncements();
 });
 
 final announcementControllerProvider = StateNotifierProvider<AnnouncementController, AsyncValue<void>>((ref) {

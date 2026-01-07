@@ -7,6 +7,7 @@ class ScheduleEvent {
   final String instructor;
   final String? courseId;
   final String? description;
+  final String type;
 
   ScheduleEvent({
     required this.id,
@@ -17,6 +18,7 @@ class ScheduleEvent {
     required this.instructor,
     this.courseId,
     this.description,
+    this.type = 'lecture',
   });
 
   ScheduleEvent copyWith({
@@ -28,6 +30,7 @@ class ScheduleEvent {
     String? instructor,
     String? courseId,
     String? description,
+    String? type,
   }) {
     return ScheduleEvent(
       id: id ?? this.id,
@@ -38,6 +41,7 @@ class ScheduleEvent {
       instructor: instructor ?? this.instructor,
       courseId: courseId ?? this.courseId,
       description: description ?? this.description,
+      type: type ?? this.type,
     );
   }
 
@@ -51,6 +55,7 @@ class ScheduleEvent {
       'instructor': instructor,
       'courseId': courseId,
       'description': description,
+      'type': type,
     };
   }
 
@@ -64,6 +69,7 @@ class ScheduleEvent {
       instructor: json['instructor'],
       courseId: json['courseId'],
       description: json['description'],
+      type: json['type'] ?? 'lecture',
     );
   }
 }

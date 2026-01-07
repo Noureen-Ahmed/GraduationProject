@@ -1,9 +1,10 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../models/course.dart';
 import '../repositories/course_repository.dart';
+import 'app_session_provider.dart';
 
 final courseRepositoryProvider = Provider<CourseRepository>((ref) {
-  return MockCourseRepository();
+  return ApiCourseRepository();
 });
 
 final courseByIdProvider =
@@ -11,12 +12,22 @@ final courseByIdProvider =
   final repo = ref.watch(courseRepositoryProvider);
   return repo.getCourseById(courseId);
 });
-final coursesProvider = StreamProvider<List<Course>>((ref) {
-  return ref.watch(courseRepositoryProvider).watchCourses();
+
+final coursesProvider = FutureProvider<List<Course>>((ref) async {
+  return ref.watch(courseRepositoryProvider).getCourses();
 });
 
-final enrolledCoursesProvider = FutureProvider<List<Course>>((ref) {
-  return ref.watch(courseRepositoryProvider).getEnrolledCourses();
+final enrolledCoursesProvider = FutureProvider<List<Course>>((ref) async {
+  final allCourses = await ref.watch(coursesProvider.future);
+  final userAsync = ref.watch(currentUserProvider);
+  
+  return userAsync.maybeWhen(
+    data: (user) {
+      if (user == null) return [];
+      return allCourses.where((c) => user.enrolledCourses.contains(c.id)).toList();
+    },
+    orElse: () => [],
+  );
 });
 
 final courseControllerProvider = StateNotifierProvider<CourseController, AsyncValue<void>>((ref) {

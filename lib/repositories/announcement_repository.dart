@@ -1,4 +1,5 @@
-import 'dart:async';
+import 'dart:convert';
+import 'package:http/http.dart' as http;
 import '../models/announcement.dart';
 
 abstract class AnnouncementRepository {
@@ -6,82 +7,71 @@ abstract class AnnouncementRepository {
   Future<void> markAsRead(String id);
   Future<void> markAllAsRead();
   Future<void> addAnnouncement(Announcement announcement);
-  Stream<List<Announcement>> watchAnnouncements();
 }
 
-class MockAnnouncementRepository implements AnnouncementRepository {
-  final List<Announcement> _announcements = [
-    Announcement(
-      id: '1',
-      title: 'Mid-term Exam Schedule',
-      message: 'Mid-term exam schedule has been released. Please check your student portal for specific dates and times.',
-      date: DateTime.now().subtract(const Duration(days: 1)),
-      type: AnnouncementType.exam,
-    ),
-    Announcement(
-      id: '2',
-      title: 'Library Hours Extended',
-      message: 'The library will be open 24/7 during exam week to support students.',
-      date: DateTime.now().subtract(const Duration(days: 2)),
-      type: AnnouncementType.general,
-    ),
-    Announcement(
-      id: '3',
-      title: 'New Assignment Posted',
-      message: 'A new assignment has been posted for Computer Graphics course.',
-      date: DateTime.now().subtract(const Duration(days: 3)),
-      type: AnnouncementType.assignment,
-    ),
-    Announcement(
-      id: '4',
-      title: 'Guest Lecture on AI',
-      message: 'Join us for a special guest lecture on Artificial Intelligence in Education.',
-      date: DateTime.now().subtract(const Duration(days: 4)),
-      type: AnnouncementType.event,
-    ),
-  ];
-
-  final StreamController<List<Announcement>> _controller = StreamController<List<Announcement>>.broadcast();
-
-  void _emit() {
-    _controller.add(List.from(_announcements));
-  }
+class ApiAnnouncementRepository implements AnnouncementRepository {
+  static const String _baseUrl = 'http://localhost:3000/api';
 
   @override
   Future<List<Announcement>> getAnnouncements() async {
-    await Future.delayed(const Duration(milliseconds: 500));
-    return List.from(_announcements);
+    try {
+      final response = await http.get(Uri.parse('$_baseUrl/announcements'));
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        final List<dynamic> list = data['announcements'];
+        return list.map((json) => Announcement(
+          id: json['id'],
+          title: json['title'],
+          message: json['message'] ?? '',
+          date: DateTime.parse(json['date']),
+          type: _parseType(json['type']),
+          isRead: json['is_read'] == 1,
+        )).toList();
+      }
+      return [];
+    } catch (e) {
+      print('Error getting announcements: $e');
+      return [];
+    }
+  }
+
+  AnnouncementType _parseType(String? type) {
+    switch (type) {
+      case 'exam': return AnnouncementType.exam;
+      case 'assignment': return AnnouncementType.assignment;
+      case 'event': return AnnouncementType.event;
+      default: return AnnouncementType.general;
+    }
   }
 
   @override
   Future<void> markAsRead(String id) async {
-    await Future.delayed(const Duration(milliseconds: 200));
-    final index = _announcements.indexWhere((announcement) => announcement.id == id);
-    if (index != -1) {
-      _announcements[index] = _announcements[index].copyWith(isRead: true);
-      _emit();
+    try {
+      await http.patch(Uri.parse('$_baseUrl/announcements/$id/read'));
+    } catch (e) {
+      print('Error marking as read: $e');
     }
   }
 
   @override
   Future<void> markAllAsRead() async {
-    await Future.delayed(const Duration(milliseconds: 300));
-    for (int i = 0; i < _announcements.length; i++) {
-      _announcements[i] = _announcements[i].copyWith(isRead: true);
-    }
-    _emit();
+    // Implement mark all as read API if needed
   }
 
   @override
   Future<void> addAnnouncement(Announcement announcement) async {
-    await Future.delayed(const Duration(milliseconds: 200));
-    _announcements.insert(0, announcement); // Add to beginning of list
-    _emit();
-  }
-
-  @override
-  Stream<List<Announcement>> watchAnnouncements() async* {
-    yield List.from(_announcements);
-    yield* _controller.stream;
+    try {
+      await http.post(
+        Uri.parse('$_baseUrl/announcements'),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({
+          'title': announcement.title,
+          'message': announcement.message,
+          'type': announcement.type.name,
+        }),
+      );
+    } catch (e) {
+      print('Error adding announcement: $e');
+    }
   }
 }

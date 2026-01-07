@@ -88,11 +88,7 @@ class CustomBottomNavigation extends ConsumerWidget {
 
           return GestureDetector(
             onTap: () {
-              if (isHomeTab) {
-                context.go('/home/$isDoctor');
-              } else {
-                context.go(tab['route']);
-              }
+              context.go(tab['route']);
             },
             child: Container(
               padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 8),

@@ -47,12 +47,11 @@ class _AddContentScreenState extends ConsumerState<AddContentScreen> {
                   children: [
                     IconButton(
                       onPressed: () {
-                        final session = ref.read(appSessionControllerProvider);
-                        final isDoctor = session.maybeWhen(
-                          authenticated: (user) => StorageService.isDoctorEmail(user.email),
-                          orElse: () => false,
-                        );
-                        context.go('/home/$isDoctor');
+                        if (context.canPop()) {
+                          context.pop();
+                        } else {
+                          context.go('/home');
+                        }
                       },
                       icon: const Icon(Icons.arrow_back, size: 24),
                     ),
@@ -100,12 +99,11 @@ class _AddContentScreenState extends ConsumerState<AddContentScreen> {
                 children: [
                   IconButton(
                     onPressed: () {
-                      final session = ref.read(appSessionControllerProvider);
-                      final isDoctor = session.maybeWhen(
-                        authenticated: (user) => StorageService.isDoctorEmail(user.email),
-                        orElse: () => false,
-                      );
-                      context.go('/home/$isDoctor');
+                      if (context.canPop()) {
+                        context.pop();
+                      } else {
+                        context.go('/home');
+                      }
                     },
                     icon: const Icon(Icons.arrow_back, size: 24),
                   ),

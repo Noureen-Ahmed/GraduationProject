@@ -3,11 +3,11 @@ import '../models/schedule_event.dart';
 import '../repositories/schedule_repository.dart';
 
 final scheduleRepositoryProvider = Provider<ScheduleRepository>((ref) {
-  return MockScheduleRepository();
+  return ApiScheduleRepository();
 });
 
-final scheduleEventsProvider = StreamProvider<List<ScheduleEvent>>((ref) {
-  return ref.watch(scheduleRepositoryProvider).watchEvents();
+final scheduleEventsProvider = FutureProvider<List<ScheduleEvent>>((ref) {
+  return ref.watch(scheduleRepositoryProvider).getEvents();
 });
 
 final upcomingEventsProvider = FutureProvider<List<ScheduleEvent>>((ref) {

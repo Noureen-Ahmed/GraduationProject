@@ -12,10 +12,12 @@ import '../widgets/quick_action.dart';
 import '../widgets/schedule_event_card.dart';
 import '../providers/schedule_provider.dart';
 import 'package:intl/intl.dart';
+import '../storage_services.dart';
+import '../providers/app_session_provider.dart';
 
 class HomeScreen extends ConsumerStatefulWidget {
-  const HomeScreen({super.key, required this.isDoctor});
-  final bool isDoctor;
+  const HomeScreen({super.key});
+  
   @override
   ConsumerState<HomeScreen> createState() => _HomeScreenState();
 }
@@ -33,8 +35,10 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   }
 
   Future<void> _refreshData() async {
+    // Invalidate current user provider to force re-read
+    ref.invalidate(currentUserProvider);
+    
     await Future.wait([
-      ref.refresh(currentUserProvider.future),
       ref.refresh(announcementsProvider.future),
       ref.refresh(pendingTasksProvider.future),
       ref.refresh(enrolledCoursesProvider.future),
@@ -46,6 +50,12 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   Widget build(BuildContext context) {
     final pendingTasksAsync = ref.watch(pendingTasksProvider);
     final enrolledCoursesAsync = ref.watch(enrolledCoursesProvider);
+    final userAsync = ref.watch(currentUserProvider);
+    
+    final bool isDoctor = userAsync.maybeWhen(
+      data: (user) => user != null && StorageService.isDoctorEmail(user.email),
+      orElse: () => false,
+    );
 
     return LayoutBuilder(
       builder: (context, constraints) {
@@ -186,7 +196,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                             crossAxisSpacing: 12,
                             childAspectRatio: 1.1, // Taller cards for better presence
                             children: [
-                              if (!widget.isDoctor) 
+                              if (!isDoctor) 
                               QuickAction(
                                 title: 'Assignments',
                                 icon: const Icon(
@@ -215,9 +225,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                                   color: Color(0xFF16A34A), // green-600
                                 ),
                                 backgroundColor: const Color(0xFFF0FDF4), // green-50
-                                onTap: () => widget.isDoctor
+                                onTap: () => isDoctor
                                     ? context.go('/dr-course/1')
-                                    : context.go('/course/1'),
+                                    : context.go('/my-courses'),
                               ),
                             ],
                           ),
