@@ -77,12 +77,11 @@ class _CourseDetailScreenState extends ConsumerState<CourseDetailScreen> {
                             IconButton(
                               icon: const Icon(Icons.arrow_back, color: Colors.white),
                               onPressed: () {
-                                final session = ref.read(appSessionControllerProvider);
-                                final isDoctor = session.maybeWhen(
-                                  authenticated: (user) => StorageService.isDoctorEmail(user.email),
-                                  orElse: () => false,
-                                );
-                                context.go('/home/$isDoctor');
+                                if (context.canPop()) {
+                                  context.pop();
+                                } else {
+                                  context.go('/home');
+                                }
                               },
                             ),
                             Container(

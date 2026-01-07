@@ -14,6 +14,7 @@ import '../providers/schedule_provider.dart';
 import 'package:intl/intl.dart';
 import '../storage_services.dart';
 import '../providers/app_session_provider.dart';
+import '../models/user.dart';
 
 class HomeScreen extends ConsumerStatefulWidget {
   const HomeScreen({super.key});
@@ -53,7 +54,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     final userAsync = ref.watch(currentUserProvider);
     
     final bool isDoctor = userAsync.maybeWhen(
-      data: (user) => user != null && StorageService.isDoctorEmail(user.email),
+      data: (user) => user != null && user.mode == AppMode.professor,
       orElse: () => false,
     );
 

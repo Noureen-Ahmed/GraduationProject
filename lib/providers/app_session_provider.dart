@@ -26,12 +26,17 @@ final authStateProvider = Provider<AuthState>((ref) {
     authenticated: (user) => user,
     orElse: () => null,
   );
+  
   if (user == null) {
     return const AuthState.unauthenticated();
-  } else if (!user.isOnboardingComplete) {
-    return AuthState.onboardingRequired(user);
-  } else {
+  } 
+  
+  // If user has completed onboarding -> authenticated
+  // If user has NOT completed onboarding -> onboardingRequired
+  if (user.isOnboardingComplete) {
     return AuthState.authenticated(user);
+  } else {
+    return AuthState.onboardingRequired(user);
   }
 });
 
@@ -107,7 +112,9 @@ class AppSessionController extends StateNotifier<AppSessionState> {
       
       return result.fold(
         (user) {
-          // Do not log in immediately. Wait for verification.
+          // Set user as authenticated so course-selection can access currentUserProvider
+          // The user will still need to complete onboarding (isOnboardingComplete = false)
+          state = AppSessionState.authenticated(user);
           return Result.success(user);
         },
         (error) {

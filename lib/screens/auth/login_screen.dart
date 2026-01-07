@@ -74,8 +74,8 @@ class _LoginPageState extends ConsumerState<LoginPage> {
             backgroundColor: Colors.green,
           ),
         );
-        final isDoctor = StorageService.isDoctorEmail(emailController.text.trim());
-        context.go('/home/$isDoctor');
+        // Navigation is handled by authStateProvider in main.dart
+        // Do NOT navigate here - it causes race conditions
       } else {
         setState(() {
           errorMessage = result.error.message ?? 'Invalid email or password';

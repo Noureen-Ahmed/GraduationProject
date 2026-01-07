@@ -170,6 +170,13 @@ lib/
 - Run tests: `flutter test`
 - Run integration tests: `flutter test integration_test/`
 - Build for production: `flutter build apk` or `flutter build ios`
+- Seed Professor Account: Run `node backend/seed_professor.js`
+
+### 🔑 Credentials
+- **Student**: Register a new account
+- **Professor**: 
+  - Email: `doctor@university.edu`
+  - Password: `password123`
 
 ## Key Features Implementation
 
@@ -199,8 +206,8 @@ lib/
 
 ## Future Enhancements
 
-- [ ] Real backend integration
-- [ ] Authentication system
+- [x] Real backend integration
+- [x] Authentication system
 - [ ] Push notifications
 - [ ] Offline support
 - [ ] AR navigation implementation

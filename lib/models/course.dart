@@ -79,19 +79,73 @@ class Course {
   }
 
   factory Course.fromJson(Map<String, dynamic> json) {
+    // Handle both camelCase and snake_case from different sources
+    final creditHrs = json['creditHours'] ?? json['credit_hours'] ?? 3;
+    
+    // Parse category safely
+    CourseCategory cat = CourseCategory.comp;
+    final catStr = json['category']?.toString();
+    if (catStr != null) {
+      cat = CourseCategory.values.firstWhere(
+        (e) => e.name == catStr,
+        orElse: () => CourseCategory.comp,
+      );
+    }
+    
+    // Parse lists safely
+    List<CourseSchedule> scheduleList = [];
+    if (json['schedule'] != null && json['schedule'] is List) {
+      scheduleList = (json['schedule'] as List)
+          .map((e) => CourseSchedule.fromJson(e as Map<String, dynamic>))
+          .toList();
+    }
+    
+    List<CourseContent> contentList = [];
+    if (json['content'] != null && json['content'] is List) {
+      contentList = (json['content'] as List)
+          .map((e) => CourseContent.fromJson(e as Map<String, dynamic>))
+          .toList();
+    }
+    
+    List<Assignment> assignmentList = [];
+    if (json['assignments'] != null && json['assignments'] is List) {
+      assignmentList = (json['assignments'] as List)
+          .map((e) => Assignment.fromJson(e as Map<String, dynamic>))
+          .toList();
+    }
+    
+    List<Exam> examList = [];
+    if (json['exams'] != null && json['exams'] is List) {
+      examList = (json['exams'] as List)
+          .map((e) => Exam.fromJson(e as Map<String, dynamic>))
+          .toList();
+    }
+    
+    // Parse professors safely
+    List<String> profs = [];
+    if (json['professors'] != null) {
+      if (json['professors'] is List) {
+        profs = List<String>.from(json['professors']);
+      }
+    }
+    
     return Course(
-      id: json['id'],
-      code: json['code'],
-      name: json['name'],
-      category: CourseCategory.values.firstWhere((e) => e.name == json['category']),
-      creditHours: json['creditHours'],
-      professors: List<String>.from(json['professors']),
-      description: json['description'],
-      schedule: (json['schedule'] as List).map((e) => CourseSchedule.fromJson(e)).toList(),
-      content: (json['content'] as List).map((e) => CourseContent.fromJson(e)).toList(),
-      assignments: (json['assignments'] as List).map((e) => Assignment.fromJson(e)).toList(),
-      exams: (json['exams'] as List).map((e) => Exam.fromJson(e)).toList(),
-      enrollmentStatus: EnrollmentStatus.values.firstWhere((e) => e.name == json['enrollmentStatus']),
+      id: json['id']?.toString() ?? '',
+      code: json['code']?.toString() ?? '',
+      name: json['name']?.toString() ?? '',
+      category: cat,
+      creditHours: creditHrs is int ? creditHrs : int.tryParse(creditHrs.toString()) ?? 3,
+      professors: profs,
+      description: json['description']?.toString() ?? '',
+      schedule: scheduleList,
+      content: contentList,
+      assignments: assignmentList,
+      exams: examList,
+      enrollmentStatus: json['enrollmentStatus'] != null
+          ? EnrollmentStatus.values.firstWhere(
+              (e) => e.name == json['enrollmentStatus'],
+              orElse: () => EnrollmentStatus.available)
+          : EnrollmentStatus.available,
     );
   }
 }
@@ -140,9 +194,9 @@ class CourseSchedule {
 
   factory CourseSchedule.fromJson(Map<String, dynamic> json) {
     return CourseSchedule(
-      day: json['day'],
-      time: json['time'],
-      location: json['location'],
+      day: json['day']?.toString() ?? 'TBD',
+      time: json['time']?.toString() ?? 'TBD',
+      location: json['location']?.toString() ?? 'TBD',
     );
   }
 }
@@ -168,9 +222,9 @@ class CourseContent {
 
   factory CourseContent.fromJson(Map<String, dynamic> json) {
     return CourseContent(
-      week: json['week'],
-      topic: json['topic'],
-      description: json['description'],
+      week: json['week'] is int ? json['week'] : int.tryParse(json['week']?.toString() ?? '0') ?? 0,
+      topic: json['topic']?.toString() ?? '',
+      description: json['description']?.toString() ?? '',
     );
   }
 }
@@ -205,12 +259,12 @@ class Assignment {
 
   factory Assignment.fromJson(Map<String, dynamic> json) {
     return Assignment(
-      id: json['id'],
-      title: json['title'],
-      dueDate: DateTime.parse(json['dueDate']),
-      maxScore: json['maxScore'],
-      description: json['description'],
-      isSubmitted: json['isSubmitted'] ?? false,
+      id: json['id']?.toString() ?? '',
+      title: json['title']?.toString() ?? '',
+      dueDate: json['dueDate'] != null ? DateTime.tryParse(json['dueDate'].toString()) ?? DateTime.now() : DateTime.now(),
+      maxScore: json['maxScore'] is int ? json['maxScore'] : int.tryParse(json['maxScore']?.toString() ?? '100') ?? 100,
+      description: json['description']?.toString() ?? '',
+      isSubmitted: json['isSubmitted'] == true,
     );
   }
 
@@ -244,11 +298,11 @@ class Exam {
 
   factory Exam.fromJson(Map<String, dynamic> json) {
     return Exam(
-      id: json['id'],
-      title: json['title'],
-      date: DateTime.parse(json['date']),
-      format: json['format'],
-      gradingBreakdown: json['gradingBreakdown'],
+      id: json['id']?.toString() ?? '',
+      title: json['title']?.toString() ?? '',
+      date: json['date'] != null ? DateTime.tryParse(json['date'].toString()) ?? DateTime.now() : DateTime.now(),
+      format: json['format']?.toString() ?? '',
+      gradingBreakdown: json['gradingBreakdown']?.toString() ?? '',
     );
   }
 }

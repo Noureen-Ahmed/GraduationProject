@@ -147,6 +147,8 @@ class ApiUserDatabase {
 
   /// Convert JSON to User model
   static User _jsonToUser(Map<String, dynamic> json) {
+    final isComplete = json['isOnboardingComplete'];
+    
     return User(
       id: json['id']?.toString() ?? '',
       name: json['name'] ?? '',
@@ -158,7 +160,7 @@ class ApiUserDatabase {
       gpa: json['gpa']?.toDouble(),
       level: json['level'],
       mode: json['mode'] == 'professor' ? AppMode.professor : AppMode.student,
-      isOnboardingComplete: json['isOnboardingComplete'] ?? false,
+      isOnboardingComplete: isComplete == true || isComplete == 1,
       enrolledCourses: List<String>.from(json['enrolledCourses'] ?? []),
     );
   }

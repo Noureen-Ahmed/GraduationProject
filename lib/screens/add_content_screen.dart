@@ -1,18 +1,144 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'dart:convert';
+import 'package:http/http.dart' as http;
 import '../providers/app_mode_provider.dart';
-import '../providers/course_provider.dart';
-import '../providers/announcement_provider.dart';
-import '../providers/task_provider.dart';
-import '../models/announcement.dart';
-import '../models/task.dart';
-import '../models/user.dart';
 import '../providers/app_session_provider.dart';
-import '../storage_services.dart';
+import '../models/user.dart';
 
+/// Content type enum for professor content creation
 enum ContentType { lecture, assignment, exam }
 
+/// Simple course model for dropdown
+class SimpleCourse {
+  final String id;
+  final String code;
+  final String name;
+
+  SimpleCourse({required this.id, required this.code, required this.name});
+
+  factory SimpleCourse.fromJson(Map<String, dynamic> json) {
+    return SimpleCourse(
+      id: json['id']?.toString() ?? '',
+      code: json['code']?.toString() ?? '',
+      name: json['name']?.toString() ?? '',
+    );
+  }
+}
+
+/// API Service for content creation - all API calls in one place
+class ContentApi {
+  static const String baseUrl = 'http://localhost:3000/api';
+
+  /// Get courses assigned to a professor
+  static Future<List<SimpleCourse>> getProfessorCourses(String email) async {
+    try {
+      final response = await http.get(
+        Uri.parse('$baseUrl/doctor-courses/${Uri.encodeComponent(email)}'),
+      );
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        if (data['courses'] != null) {
+          return (data['courses'] as List)
+              .map((c) => SimpleCourse.fromJson(c))
+              .toList();
+        }
+      }
+      return [];
+    } catch (e) {
+      debugPrint('Error fetching professor courses: $e');
+      return [];
+    }
+  }
+
+  /// Create lecture content
+  static Future<bool> createLecture({
+    required String courseId,
+    required String title,
+    required String description,
+    required String professorEmail,
+  }) async {
+    try {
+      final response = await http.post(
+        Uri.parse('$baseUrl/content'),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({
+          'courseId': courseId,
+          'title': title,
+          'description': description,
+          'contentType': 'lecture',
+          'createdBy': professorEmail,
+        }),
+      );
+      return response.statusCode == 200;
+    } catch (e) {
+      debugPrint('Error creating lecture: $e');
+      return false;
+    }
+  }
+
+  /// Create assignment
+  static Future<bool> createAssignment({
+    required String courseId,
+    required String title,
+    required String description,
+    required DateTime dueDate,
+    required int points,
+    required String professorEmail,
+  }) async {
+    try {
+      final response = await http.post(
+        Uri.parse('$baseUrl/assignments'),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({
+          'courseId': courseId,
+          'title': title,
+          'description': description,
+          'dueDate': dueDate.toIso8601String(),
+          'points': points,
+          'createdBy': professorEmail,
+        }),
+      );
+      return response.statusCode == 200;
+    } catch (e) {
+      debugPrint('Error creating assignment: $e');
+      return false;
+    }
+  }
+
+  /// Create exam
+  static Future<bool> createExam({
+    required String courseId,
+    required String title,
+    required String description,
+    required DateTime examDate,
+    required int points,
+    required String professorEmail,
+  }) async {
+    try {
+      final response = await http.post(
+        Uri.parse('$baseUrl/exams'),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({
+          'courseId': courseId,
+          'title': title,
+          'description': description,
+          'examDate': examDate.toIso8601String(),
+          'points': points,
+          'createdBy': professorEmail,
+        }),
+      );
+      return response.statusCode == 200;
+    } catch (e) {
+      debugPrint('Error creating exam: $e');
+      return false;
+    }
+  }
+}
+
+/// Main screen for adding content (professors only)
 class AddContentScreen extends ConsumerStatefulWidget {
   const AddContentScreen({super.key});
 
@@ -21,109 +147,265 @@ class AddContentScreen extends ConsumerStatefulWidget {
 }
 
 class _AddContentScreenState extends ConsumerState<AddContentScreen> {
-  ContentType? selectedType;
+  // State
+  ContentType? _selectedType;
+  List<SimpleCourse> _courses = [];
+  bool _isLoading = true;
+  bool _isSubmitting = false;
+  String? _errorMessage;
+
+  // Form controllers
   final _formKey = GlobalKey<FormState>();
+  String? _selectedCourseId;
   final _titleController = TextEditingController();
   final _descriptionController = TextEditingController();
-  final _pointsController = TextEditingController();
-  DateTime? _deadline;
-  String? _selectedCourseId;
+  final _pointsController = TextEditingController(text: '100');
+  DateTime? _selectedDate;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadCourses();
+  }
+
+  @override
+  void dispose() {
+    _titleController.dispose();
+    _descriptionController.dispose();
+    _pointsController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _loadCourses() async {
+    final user = ref.read(currentUserProvider).value;
+    if (user == null) {
+      setState(() {
+        _isLoading = false;
+        _errorMessage = 'User session not found';
+      });
+      return;
+    }
+
+    final courses = await ContentApi.getProfessorCourses(user.email);
+    
+    if (mounted) {
+      setState(() {
+        _courses = courses;
+        _isLoading = false;
+        if (courses.isEmpty) {
+          _errorMessage = 'No courses assigned. Contact admin to assign courses.';
+        }
+      });
+    }
+  }
+
+  void _selectType(ContentType type) {
+    setState(() => _selectedType = type);
+  }
+
+  void _goBack() {
+    if (_selectedType != null) {
+      setState(() => _selectedType = null);
+    } else if (context.canPop()) {
+      context.pop();
+    } else {
+      context.go('/home');
+    }
+  }
+
+  Future<void> _selectDate() async {
+    final date = await showDatePicker(
+      context: context,
+      initialDate: DateTime.now().add(const Duration(days: 7)),
+      firstDate: DateTime.now(),
+      lastDate: DateTime.now().add(const Duration(days: 365)),
+    );
+
+    if (date != null && mounted) {
+      final time = await showTimePicker(
+        context: context,
+        initialTime: const TimeOfDay(hour: 23, minute: 59),
+      );
+
+      if (time != null && mounted) {
+        setState(() {
+          _selectedDate = DateTime(date.year, date.month, date.day, time.hour, time.minute);
+        });
+      }
+    }
+  }
+
+  Future<void> _submit() async {
+    if (!_formKey.currentState!.validate()) return;
+    if (_selectedCourseId == null) {
+      _showMessage('Please select a course', isError: true);
+      return;
+    }
+    if (_needsDate && _selectedDate == null) {
+      _showMessage('Please select a date', isError: true);
+      return;
+    }
+
+    setState(() => _isSubmitting = true);
+
+    final user = ref.read(currentUserProvider).value;
+    if (user == null) {
+      _showMessage('Session expired. Please login again.', isError: true);
+      setState(() => _isSubmitting = false);
+      return;
+    }
+
+    bool success = false;
+
+    switch (_selectedType) {
+      case ContentType.lecture:
+        success = await ContentApi.createLecture(
+          courseId: _selectedCourseId!,
+          title: _titleController.text.trim(),
+          description: _descriptionController.text.trim(),
+          professorEmail: user.email,
+        );
+        break;
+      case ContentType.assignment:
+        success = await ContentApi.createAssignment(
+          courseId: _selectedCourseId!,
+          title: _titleController.text.trim(),
+          description: _descriptionController.text.trim(),
+          dueDate: _selectedDate!,
+          points: int.tryParse(_pointsController.text) ?? 100,
+          professorEmail: user.email,
+        );
+        break;
+      case ContentType.exam:
+        success = await ContentApi.createExam(
+          courseId: _selectedCourseId!,
+          title: _titleController.text.trim(),
+          description: _descriptionController.text.trim(),
+          examDate: _selectedDate!,
+          points: int.tryParse(_pointsController.text) ?? 100,
+          professorEmail: user.email,
+        );
+        break;
+      default:
+        break;
+    }
+
+    setState(() => _isSubmitting = false);
+
+    if (success) {
+      _showMessage('${_typeName} created! Students have been notified.', isError: false);
+      _resetForm();
+    } else {
+      _showMessage('Failed to create ${_typeName.toLowerCase()}', isError: true);
+    }
+  }
+
+  void _resetForm() {
+    setState(() {
+      _selectedType = null;
+      _selectedCourseId = null;
+      _titleController.clear();
+      _descriptionController.clear();
+      _pointsController.text = '100';
+      _selectedDate = null;
+    });
+  }
+
+  void _showMessage(String message, {required bool isError}) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        backgroundColor: isError ? Colors.red : Colors.green,
+        behavior: SnackBarBehavior.floating,
+      ),
+    );
+  }
+
+  // Helpers
+  bool get _needsDate => _selectedType == ContentType.assignment || _selectedType == ContentType.exam;
+  
+  String get _typeName {
+    switch (_selectedType) {
+      case ContentType.lecture: return 'Lecture';
+      case ContentType.assignment: return 'Assignment';
+      case ContentType.exam: return 'Exam';
+      default: return 'Content';
+    }
+  }
+
+  Color get _typeColor {
+    switch (_selectedType) {
+      case ContentType.lecture: return const Color(0xFF10B981);
+      case ContentType.assignment: return const Color(0xFF3B82F6);
+      case ContentType.exam: return const Color(0xFFEF4444);
+      default: return const Color(0xFF6366F1);
+    }
+  }
+
+  IconData get _typeIcon {
+    switch (_selectedType) {
+      case ContentType.lecture: return Icons.menu_book;
+      case ContentType.assignment: return Icons.assignment;
+      case ContentType.exam: return Icons.quiz;
+      default: return Icons.add;
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
     final appMode = ref.watch(appModeControllerProvider);
-    final coursesAsync = ref.watch(enrolledCoursesProvider);
 
+    // Access check
     if (appMode != AppMode.professor) {
-      return Scaffold(
-        backgroundColor: Colors.white,
-        body: SafeArea(
-          child: Column(
-            children: [
-              // Custom header
-              Container(
-                padding: const EdgeInsets.all(24),
-                child: Row(
-                  children: [
-                    IconButton(
-                      onPressed: () {
-                        if (context.canPop()) {
-                          context.pop();
-                        } else {
-                          context.go('/home');
-                        }
-                      },
-                      icon: const Icon(Icons.arrow_back, size: 24),
-                    ),
-                    const Text(
-                      'Access Denied',
-                      style: TextStyle(
-                        fontSize: 24,
-                        fontWeight: FontWeight.w700,
-                        color: Colors.black,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              const Spacer(),
-              const Icon(
-                Icons.lock,
-                size: 80,
-                color: Color(0xFF9CA3AF),
-              ),
-              const SizedBox(height: 16),
-              const Text(
-                'Only professors can add content',
-                style: TextStyle(
-                  fontSize: 18,
-                  color: Color(0xFF6B7280),
-                ),
-              ),
-              const Spacer(),
-            ],
-          ),
-        ),
-      );
+      return _buildAccessDenied();
     }
 
     return Scaffold(
+      backgroundColor: const Color(0xFFF9FAFB),
+      appBar: AppBar(
+        backgroundColor: Colors.white,
+        elevation: 0,
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back, color: Colors.black),
+          onPressed: _goBack,
+        ),
+        title: Text(
+          _selectedType == null ? 'Add Content' : 'New $_typeName',
+          style: const TextStyle(color: Colors.black, fontWeight: FontWeight.bold),
+        ),
+        centerTitle: false,
+      ),
+      body: _isLoading
+          ? const Center(child: CircularProgressIndicator())
+          : _errorMessage != null && _courses.isEmpty
+              ? _buildError()
+              : _selectedType == null
+                  ? _buildTypeSelection()
+                  : _buildForm(),
+    );
+  }
+
+  Widget _buildAccessDenied() {
+    return Scaffold(
       backgroundColor: Colors.white,
-      body: SafeArea(
+      appBar: AppBar(
+        backgroundColor: Colors.white,
+        elevation: 0,
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back, color: Colors.black),
+          onPressed: () => context.go('/home'),
+        ),
+        title: const Text('Access Denied', style: TextStyle(color: Colors.black)),
+      ),
+      body: const Center(
         child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            // Custom header
-            Container(
-              padding: const EdgeInsets.all(24),
-              child: Row(
-                children: [
-                  IconButton(
-                    onPressed: () {
-                      if (context.canPop()) {
-                        context.pop();
-                      } else {
-                        context.go('/home');
-                      }
-                    },
-                    icon: const Icon(Icons.arrow_back, size: 24),
-                  ),
-                  const Text(
-                    'Add Content',
-                    style: TextStyle(
-                      fontSize: 24,
-                      fontWeight: FontWeight.w700,
-                      color: Colors.black,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            
-            // Content
-            Expanded(
-              child: selectedType == null
-                  ? _buildContentTypeSelection()
-                  : _buildContentForm(coursesAsync),
+            Icon(Icons.lock_outline, size: 80, color: Color(0xFF9CA3AF)),
+            SizedBox(height: 16),
+            Text(
+              'Professor access required',
+              style: TextStyle(fontSize: 18, color: Color(0xFF6B7280)),
             ),
           ],
         ),
@@ -131,53 +413,276 @@ class _AddContentScreenState extends ConsumerState<AddContentScreen> {
     );
   }
 
-  Widget _buildContentTypeSelection() {
+  Widget _buildError() {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(32),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            const Icon(Icons.warning_amber, size: 64, color: Color(0xFFF59E0B)),
+            const SizedBox(height: 16),
+            Text(
+              _errorMessage!,
+              textAlign: TextAlign.center,
+              style: const TextStyle(fontSize: 16, color: Color(0xFF6B7280)),
+            ),
+            const SizedBox(height: 24),
+            ElevatedButton.icon(
+              onPressed: () {
+                setState(() {
+                  _isLoading = true;
+                  _errorMessage = null;
+                });
+                _loadCourses();
+              },
+              icon: const Icon(Icons.refresh),
+              label: const Text('Retry'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildTypeSelection() {
     return Padding(
       padding: const EdgeInsets.all(24),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           const Text(
-            'Select Content Type',
-            style: TextStyle(
-              fontSize: 18,
-              fontWeight: FontWeight.w600,
-              color: Colors.black,
+            'What would you like to create?',
+            style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'Select content type to get started',
+            style: TextStyle(color: Colors.grey[600]),
+          ),
+          const SizedBox(height: 32),
+          
+          _buildTypeCard(
+            type: ContentType.lecture,
+            title: 'Lecture',
+            subtitle: 'Add lecture materials and notes',
+            icon: Icons.menu_book,
+            color: const Color(0xFF10B981),
+          ),
+          const SizedBox(height: 16),
+          
+          _buildTypeCard(
+            type: ContentType.assignment,
+            title: 'Assignment',
+            subtitle: 'Create assignments with deadlines',
+            icon: Icons.assignment,
+            color: const Color(0xFF3B82F6),
+          ),
+          const SizedBox(height: 16),
+          
+          _buildTypeCard(
+            type: ContentType.exam,
+            title: 'Exam',
+            subtitle: 'Schedule exams and assessments',
+            icon: Icons.quiz,
+            color: const Color(0xFFEF4444),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildTypeCard({
+    required ContentType type,
+    required String title,
+    required String subtitle,
+    required IconData icon,
+    required Color color,
+  }) {
+    return Material(
+      color: Colors.white,
+      borderRadius: BorderRadius.circular(12),
+      child: InkWell(
+        onTap: () => _selectType(type),
+        borderRadius: BorderRadius.circular(12),
+        child: Container(
+          padding: const EdgeInsets.all(20),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: const Color(0xFFE5E7EB)),
+          ),
+          child: Row(
+            children: [
+              Container(
+                width: 56,
+                height: 56,
+                decoration: BoxDecoration(
+                  color: color.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Icon(icon, size: 28, color: color),
+              ),
+              const SizedBox(width: 16),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(title, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w600)),
+                    const SizedBox(height: 4),
+                    Text(subtitle, style: TextStyle(color: Colors.grey[600])),
+                  ],
+                ),
+              ),
+              Icon(Icons.chevron_right, color: Colors.grey[400]),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildForm() {
+    return Form(
+      key: _formKey,
+      child: ListView(
+        padding: const EdgeInsets.all(24),
+        children: [
+          // Type badge
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            decoration: BoxDecoration(
+              color: _typeColor.withOpacity(0.1),
+              borderRadius: BorderRadius.circular(20),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(_typeIcon, size: 18, color: _typeColor),
+                const SizedBox(width: 8),
+                Text(_typeName, style: TextStyle(color: _typeColor, fontWeight: FontWeight.w600)),
+              ],
             ),
           ),
-          const SizedBox(height: 24),
           
-          // Content type cards
-          Expanded(
-            child: Column(
+          const SizedBox(height: 24),
+
+          // Course dropdown
+          _buildLabel('Course'),
+          const SizedBox(height: 8),
+          DropdownButtonFormField<String>(
+            value: _selectedCourseId,
+            decoration: _inputDecoration('Select a course'),
+            items: _courses.map((c) => DropdownMenuItem(
+              value: c.id,
+              child: Text('${c.code} - ${c.name}', overflow: TextOverflow.ellipsis),
+            )).toList(),
+            onChanged: (v) => setState(() => _selectedCourseId = v),
+            validator: (v) => v == null ? 'Required' : null,
+          ),
+
+          const SizedBox(height: 20),
+
+          // Title
+          _buildLabel('Title'),
+          const SizedBox(height: 8),
+          TextFormField(
+            controller: _titleController,
+            decoration: _inputDecoration('Enter title'),
+            validator: (v) => v == null || v.isEmpty ? 'Required' : null,
+          ),
+
+          const SizedBox(height: 20),
+
+          // Description
+          _buildLabel('Description'),
+          const SizedBox(height: 8),
+          TextFormField(
+            controller: _descriptionController,
+            decoration: _inputDecoration('Enter description'),
+            maxLines: 4,
+            validator: (v) => v == null || v.isEmpty ? 'Required' : null,
+          ),
+
+          // Points and Date (for assignment/exam only)
+          if (_needsDate) ...[
+            const SizedBox(height: 20),
+            
+            Row(
               children: [
-                _ContentTypeCard(
-                  type: ContentType.lecture,
-                  title: 'Lecture',
-                  description: 'Add lecture materials and content',
-                  icon: Icons.menu_book,
-                  color: const Color(0xFF10B981), // green-500
-                  onTap: () => setState(() => selectedType = ContentType.lecture),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      _buildLabel('Points'),
+                      const SizedBox(height: 8),
+                      TextFormField(
+                        controller: _pointsController,
+                        decoration: _inputDecoration('100'),
+                        keyboardType: TextInputType.number,
+                        validator: (v) {
+                          if (v == null || v.isEmpty) return 'Required';
+                          if (int.tryParse(v) == null) return 'Invalid';
+                          return null;
+                        },
+                      ),
+                    ],
+                  ),
                 ),
-                const SizedBox(height: 16),
-                _ContentTypeCard(
-                  type: ContentType.assignment,
-                  title: 'Assignment',
-                  description: 'Create assignments with deadlines',
-                  icon: Icons.assignment,
-                  color: const Color(0xFF3B82F6), // blue-500
-                  onTap: () => setState(() => selectedType = ContentType.assignment),
-                ),
-                const SizedBox(height: 16),
-                _ContentTypeCard(
-                  type: ContentType.exam,
-                  title: 'Exam',
-                  description: 'Schedule exams and assessments',
-                  icon: Icons.quiz,
-                  color: const Color(0xFFEF4444), // red-500
-                  onTap: () => setState(() => selectedType = ContentType.exam),
+                const SizedBox(width: 16),
+                Expanded(
+                  flex: 2,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      _buildLabel(_selectedType == ContentType.exam ? 'Exam Date' : 'Due Date'),
+                      const SizedBox(height: 8),
+                      InkWell(
+                        onTap: _selectDate,
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 16),
+                          decoration: BoxDecoration(
+                            border: Border.all(color: const Color(0xFFD1D5DB)),
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: Row(
+                            children: [
+                              Icon(Icons.calendar_today, size: 20, color: Colors.grey[600]),
+                              const SizedBox(width: 8),
+                              Text(
+                                _selectedDate != null
+                                    ? '${_selectedDate!.day}/${_selectedDate!.month}/${_selectedDate!.year}'
+                                    : 'Select date',
+                                style: TextStyle(
+                                  color: _selectedDate != null ? Colors.black : Colors.grey[500],
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
               ],
+            ),
+          ],
+
+          const SizedBox(height: 32),
+
+          // Submit button
+          SizedBox(
+            height: 52,
+            child: ElevatedButton(
+              onPressed: _isSubmitting ? null : _submit,
+              style: ElevatedButton.styleFrom(
+                backgroundColor: _typeColor,
+                foregroundColor: Colors.white,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                disabledBackgroundColor: _typeColor.withOpacity(0.5),
+              ),
+              child: _isSubmitting
+                  ? const SizedBox(height: 20, width: 20, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
+                  : Text('Create $_typeName', style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
             ),
           ),
         ],
@@ -185,473 +690,31 @@ class _AddContentScreenState extends ConsumerState<AddContentScreen> {
     );
   }
 
-  Widget _buildContentForm(AsyncValue coursesAsync) {
-    return Form(
-      key: _formKey,
-      child: SingleChildScrollView(
-        padding: const EdgeInsets.all(24),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            // Course picker
-            const Text(
-              'Course',
-              style: TextStyle(
-                fontSize: 16,
-                fontWeight: FontWeight.w600,
-                color: Colors.black,
-              ),
-            ),
-            const SizedBox(height: 8),
-            coursesAsync.when(
-              data: (courses) {
-                return DropdownButtonFormField<String>(
-                  value: _selectedCourseId,
-                  decoration: InputDecoration(
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(8),
-                      borderSide: const BorderSide(color: Color(0xFFE5E7EB)),
-                    ),
-                    enabledBorder: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(8),
-                      borderSide: const BorderSide(color: Color(0xFFE5E7EB)),
-                    ),
-                    focusedBorder: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(8),
-                      borderSide: const BorderSide(color: Color(0xFF3B82F6)),
-                    ),
-                    contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                  ),
-                  hint: const Text('Select a course'),
-                  items: courses.map((course) {
-                    return DropdownMenuItem(
-                      value: course.id,
-                      child: Text(course.name),
-                    );
-                  }).toList(),
-                  validator: (value) {
-                    if (value == null || value.isEmpty) {
-                      return 'Please select a course';
-                    }
-                    return null;
-                  },
-                  onChanged: (value) {
-                    setState(() {
-                      _selectedCourseId = value;
-                    });
-                  },
-                );
-              },
-              loading: () => const CircularProgressIndicator(),
-              error: (_, __) => const Text('Error loading courses'),
-            ),
-            
-            const SizedBox(height: 24),
-            
-            // Title field
-            const Text(
-              'Title',
-              style: TextStyle(
-                fontSize: 16,
-                fontWeight: FontWeight.w600,
-                color: Colors.black,
-              ),
-            ),
-            const SizedBox(height: 8),
-            TextFormField(
-              controller: _titleController,
-              decoration: InputDecoration(
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(8),
-                  borderSide: const BorderSide(color: Color(0xFFE5E7EB)),
-                ),
-                enabledBorder: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(8),
-                  borderSide: const BorderSide(color: Color(0xFFE5E7EB)),
-                ),
-                focusedBorder: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(8),
-                  borderSide: const BorderSide(color: Color(0xFF3B82F6)),
-                ),
-                contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                hintText: 'Enter title',
-              ),
-              validator: (value) {
-                if (value == null || value.isEmpty) {
-                  return 'Please enter a title';
-                }
-                return null;
-              },
-            ),
-            
-            const SizedBox(height: 24),
-            
-            // Description field
-            const Text(
-              'Description',
-              style: TextStyle(
-                fontSize: 16,
-                fontWeight: FontWeight.w600,
-                color: Colors.black,
-              ),
-            ),
-            const SizedBox(height: 8),
-            TextFormField(
-              controller: _descriptionController,
-              maxLines: 4,
-              decoration: InputDecoration(
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(8),
-                  borderSide: const BorderSide(color: Color(0xFFE5E7EB)),
-                ),
-                enabledBorder: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(8),
-                  borderSide: const BorderSide(color: Color(0xFFE5E7EB)),
-                ),
-                focusedBorder: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(8),
-                  borderSide: const BorderSide(color: Color(0xFF3B82F6)),
-                ),
-                contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                hintText: 'Enter description',
-              ),
-              validator: (value) {
-                if (value == null || value.isEmpty) {
-                  return 'Please enter a description';
-                }
-                return null;
-              },
-            ),
-            
-            // Conditional fields based on content type
-            if (selectedType == ContentType.assignment || selectedType == ContentType.exam) ...[
-              const SizedBox(height: 24),
-              
-              // Points field
-              const Text(
-                'Points',
-                style: TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.w600,
-                  color: Colors.black,
-                ),
-              ),
-              const SizedBox(height: 8),
-              TextFormField(
-                controller: _pointsController,
-                keyboardType: TextInputType.number,
-                decoration: InputDecoration(
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(8),
-                    borderSide: const BorderSide(color: Color(0xFFE5E7EB)),
-                  ),
-                  enabledBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(8),
-                    borderSide: const BorderSide(color: Color(0xFFE5E7EB)),
-                  ),
-                  focusedBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(8),
-                    borderSide: const BorderSide(color: Color(0xFF3B82F6)),
-                  ),
-                  contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                  hintText: 'Enter points',
-                ),
-                validator: (value) {
-                  if (value == null || value.isEmpty) {
-                    return 'Please enter points';
-                  }
-                  if (int.tryParse(value) == null) {
-                    return 'Please enter a valid number';
-                  }
-                  return null;
-                },
-              ),
-              
-              const SizedBox(height: 24),
-              
-              // Deadline field
-              const Text(
-                'Deadline',
-                style: TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.w600,
-                  color: Colors.black,
-                ),
-              ),
-              const SizedBox(height: 8),
-              GestureDetector(
-                onTap: () => _selectDeadline(),
-                child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                  decoration: BoxDecoration(
-                    border: Border.all(color: const Color(0xFFE5E7EB)),
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: Row(
-                    children: [
-                      const Icon(Icons.calendar_today, size: 20, color: Color(0xFF6B7280)),
-                      const SizedBox(width: 12),
-                      Text(
-                        _deadline != null
-                            ? '${_deadline!.day}/${_deadline!.month}/${_deadline!.year}'
-                            : 'Select deadline',
-                        style: TextStyle(
-                          color: _deadline != null ? Colors.black : const Color(0xFF9CA3AF),
-                        ),
-                      ),
-                      const Spacer(),
-                      const Icon(Icons.arrow_drop_down, color: Color(0xFF6B7280)),
-                    ],
-                  ),
-                ),
-              ),
-            ],
-            
-            // Attachment placeholder
-            const SizedBox(height: 24),
-            Container(
-              width: double.infinity,
-              padding: const EdgeInsets.all(24),
-              decoration: BoxDecoration(
-                border: Border.all(color: const Color(0xFFE5E7EB), style: BorderStyle.solid),
-                borderRadius: BorderRadius.circular(8),
-                color: const Color(0xFFF9FAFB),
-              ),
-              child: const Column(
-                children: [
-                  Icon(
-                    Icons.cloud_upload_outlined,
-                    size: 48,
-                    color: Color(0xFF9CA3AF),
-                  ),
-                  SizedBox(height: 8),
-                  Text(
-                    'Click to upload attachments',
-                    style: TextStyle(
-                      fontSize: 14,
-                      color: Color(0xFF6B7280),
-                    ),
-                  ),
-                  Text(
-                    'PDF, DOC, PPT up to 10MB',
-                    style: TextStyle(
-                      fontSize: 12,
-                      color: Color(0xFF9CA3AF),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            
-            const SizedBox(height: 32),
-            
-            // Submit button
-            SizedBox(
-              width: double.infinity,
-              child: ElevatedButton(
-                onPressed: _submitForm,
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFF3B82F6),
-                  foregroundColor: Colors.white,
-                  padding: const EdgeInsets.symmetric(vertical: 16),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                ),
-                child: const Text(
-                  'Create Content',
-                  style: TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-              ),
-            ),
-            
-            const SizedBox(height: 32),
-          ],
-        ),
-      ),
+  Widget _buildLabel(String text) {
+    return Text(
+      text,
+      style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
     );
   }
 
-  Future<void> _selectDeadline() async {
-    final date = await showDatePicker(
-      context: context,
-      initialDate: DateTime.now().add(const Duration(days: 7)),
-      firstDate: DateTime.now(),
-      lastDate: DateTime.now().add(const Duration(days: 365)),
-    );
-    
-    if (date != null) {
-      setState(() {
-        _deadline = date;
-      });
-    }
-  }
-
-  Future<void> _submitForm() async {
-    if (!_formKey.currentState!.validate()) {
-      return;
-    }
-
-    if (_selectedCourseId == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please select a course')),
-      );
-      return;
-    }
-
-    if ((selectedType == ContentType.assignment || selectedType == ContentType.exam) && _deadline == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please select a deadline')),
-      );
-      return;
-    }
-
-    try {
-      if (selectedType == ContentType.lecture) {
-        // Create announcement for lecture
-        final announcement = Announcement(
-          id: DateTime.now().millisecondsSinceEpoch.toString(),
-          title: _titleController.text,
-          message: _descriptionController.text,
-          date: DateTime.now(),
-          type: AnnouncementType.general,
-        );
-        await ref.read(announcementControllerProvider.notifier).createAnnouncement(announcement);
-      } else if (selectedType == ContentType.assignment) {
-        // Create assignment task
-        final task = Task(
-          id: DateTime.now().millisecondsSinceEpoch.toString(),
-          title: _titleController.text,
-          description: _descriptionController.text,
-          subject: 'Course', // Would be populated from selected course
-          dueDate: _deadline!,
-          priority: TaskPriority.medium,
-          status: TaskStatus.pending,
-          createdAt: DateTime.now(),
-        );
-        await ref.read(taskControllerProvider.notifier).createTask(task);
-      } else if (selectedType == ContentType.exam) {
-        // Create exam task
-        final task = Task(
-          id: DateTime.now().millisecondsSinceEpoch.toString(),
-          title: _titleController.text,
-          description: _descriptionController.text,
-          subject: 'Course', // Would be populated from selected course
-          dueDate: _deadline!,
-          priority: TaskPriority.high,
-          status: TaskStatus.pending,
-          createdAt: DateTime.now(),
-        );
-        await ref.read(taskControllerProvider.notifier).createTask(task);
-      }
-
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Content created successfully')),
-      );
-      
-      // Reset form and go back to selection
-      setState(() {
-        selectedType = null;
-        _titleController.clear();
-        _descriptionController.clear();
-        _pointsController.clear();
-        _deadline = null;
-        _selectedCourseId = null;
-      });
-      
-    } catch (error) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Error creating content: $error')),
-      );
-    }
-  }
-}
-
-class _ContentTypeCard extends StatelessWidget {
-  final ContentType type;
-  final String title;
-  final String description;
-  final IconData icon;
-  final Color color;
-  final VoidCallback onTap;
-
-  const _ContentTypeCard({
-    required this.type,
-    required this.title,
-    required this.description,
-    required this.icon,
-    required this.color,
-    required this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        padding: const EdgeInsets.all(20),
-        decoration: BoxDecoration(
-          color: Colors.white,
-          border: Border.all(color: const Color(0xFFE5E7EB)),
-          borderRadius: BorderRadius.circular(12),
-          boxShadow: const [
-            BoxShadow(
-              color: Color(0x05000000),
-              blurRadius: 8,
-              offset: Offset(0, 2),
-            ),
-          ],
-        ),
-        child: Row(
-          children: [
-            Container(
-              width: 56,
-              height: 56,
-              decoration: BoxDecoration(
-                color: color.withOpacity(0.1),
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: Icon(
-                icon,
-                size: 28,
-                color: color,
-              ),
-            ),
-            const SizedBox(width: 16),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    title,
-                    style: const TextStyle(
-                      fontSize: 18,
-                      fontWeight: FontWeight.w600,
-                      color: Colors.black,
-                    ),
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    description,
-                    style: const TextStyle(
-                      fontSize: 14,
-                      color: Color(0xFF6B7280),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            const Icon(
-              Icons.arrow_forward_ios,
-              size: 16,
-              color: Color(0xFF9CA3AF),
-            ),
-          ],
-        ),
+  InputDecoration _inputDecoration(String hint) {
+    return InputDecoration(
+      hintText: hint,
+      filled: true,
+      fillColor: Colors.white,
+      border: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(8),
+        borderSide: const BorderSide(color: Color(0xFFD1D5DB)),
       ),
+      enabledBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(8),
+        borderSide: const BorderSide(color: Color(0xFFD1D5DB)),
+      ),
+      focusedBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(8),
+        borderSide: BorderSide(color: _typeColor, width: 2),
+      ),
+      contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
     );
   }
 }

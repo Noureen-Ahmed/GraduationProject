@@ -6,6 +6,8 @@ import 'package:go_router/go_router.dart';
 import '../../storage_services.dart';
 import '../../providers/app_session_provider.dart';
 import '../../providers/app_mode_provider.dart';
+import '../../providers/course_provider.dart';
+import '../../models/course.dart';
 
 class SelectCoursePage extends ConsumerStatefulWidget {
   final String email;
@@ -28,41 +30,40 @@ class _SelectCoursePageState extends ConsumerState<SelectCoursePage> {
   String? _selectedDepartmentId;
   String? _selectedProgramId;
   int? _selectedLevel;
+  CourseCategory? _selectedCategoryFilter;
   
   List<String> selectedCourseIds = [];
   bool _isLoading = true;
   bool _isSaving = false;
 
-  final List<Course> courses = [
-    Course(id: 'CS101', code: 'CS101', name: 'Introduction to Computer Science', category: 'Computer Science', creditHours: 3),
-    Course(id: 'CS102', code: 'CS102', name: 'Data Structures', category: 'Computer Science', creditHours: 3),
-    Course(id: 'CS201', code: 'CS201', name: 'Algorithms', category: 'Computer Science', creditHours: 3),
-    Course(id: 'CS301', code: 'CS301', name: 'Database Systems', category: 'Computer Science', creditHours: 3),
-    Course(id: 'MATH101', code: 'MATH101', name: 'Calculus I', category: 'Mathematics', creditHours: 4),
-    Course(id: 'MATH201', code: 'MATH201', name: 'Linear Algebra', category: 'Mathematics', creditHours: 3),
-    Course(id: 'PHYS101', code: 'PHYS101', name: 'Physics I', category: 'Physics', creditHours: 3),
-    Course(id: 'STAT101', code: 'STAT101', name: 'Statistics', category: 'Statistics', creditHours: 3),
-  ];
+  List<Course> _allCourses = [];
 
   @override
   void initState() {
     super.initState();
-    _loadDepartmentData();
+    _loadData();
   }
 
-  Future<void> _loadDepartmentData() async {
+  Future<void> _loadData() async {
     try {
+      // Load JSON data
       final String jsonString = await rootBundle.loadString('assets/mock/departments.json');
       final data = jsonDecode(jsonString);
       
-      setState(() {
-        _departments = List<Map<String, dynamic>>.from(data['departments']);
-        _levels = List<Map<String, dynamic>>.from(data['levels']);
-        _isLoading = false;
-      });
+      // Load Courses from Backend
+      final courses = await ref.read(courseRepositoryProvider).getCourses();
+
+      if (mounted) {
+        setState(() {
+          _departments = List<Map<String, dynamic>>.from(data['departments']);
+          _levels = List<Map<String, dynamic>>.from(data['levels']);
+          _allCourses = courses;
+          _isLoading = false;
+        });
+      }
     } catch (e) {
-      print('Error loading departments: $e');
-      setState(() => _isLoading = false);
+      print('Error loading data: $e');
+      if (mounted) setState(() => _isLoading = false);
     }
   }
 
@@ -93,9 +94,27 @@ class _SelectCoursePageState extends ConsumerState<SelectCoursePage> {
 
   List<Course> _getFilteredCourses() {
     String query = _searchController.text.toLowerCase();
-    return courses.where((course) {
-      return course.code.toLowerCase().contains(query) ||
+    return _allCourses.where((course) {
+      bool matchesSearch = course.code.toLowerCase().contains(query) ||
           course.name.toLowerCase().contains(query);
+      
+      bool matchesLevel = true;
+      if (_selectedLevel != null) {
+        // Simple heuristic: 1st digit of number in code matches level
+        // e.g. COMP101 -> 1, COMP201 -> 2
+        final digits = course.code.replaceAll(RegExp(r'[^0-9]'), '');
+        if (digits.isNotEmpty) {
+           int courseLevel = int.parse(digits[0]);
+           matchesLevel = courseLevel == _selectedLevel;
+        }
+      }
+
+      bool matchesCategory = true;
+      if (_selectedCategoryFilter != null) {
+        matchesCategory = course.category == _selectedCategoryFilter;
+      }
+
+      return matchesSearch && matchesLevel && matchesCategory;
     }).toList();
   }
 
@@ -179,26 +198,35 @@ class _SelectCoursePageState extends ConsumerState<SelectCoursePage> {
         enrolledCourses: selectedCourseIds,
         isOnboardingComplete: true,
       );
+      
+      // This updates the user in the database AND updates the local state
+      // The authStateProvider will automatically detect isOnboardingComplete=true
+      // and redirect to /home
       await ref.read(appSessionControllerProvider.notifier).updateUser(updatedUser);
+      
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Profile setup complete!'),
+            backgroundColor: Colors.green,
+          ),
+        );
+        // Navigation will be handled by authStateProvider in main.dart
+        // since isOnboardingComplete is now true -> authenticated -> redirect to /home
+      }
+    } else {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Error: User session not found. Please login again.'),
+            backgroundColor: Colors.red,
+          ),
+        );
+        context.go('/login');
+      }
     }
 
     setState(() => _isSaving = false);
-
-    if (mounted) {
-      // Logout so user must login again
-      await ref.read(appSessionControllerProvider.notifier).logout();
-      
-      context.go('/login', extra: {
-        'email': widget.email,
-        'password': widget.password ?? '',
-      });
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Setup complete! Please login to continue.'),
-          backgroundColor: Colors.green,
-        ),
-      );
-    }
   }
 
   @override
@@ -306,7 +334,9 @@ class _SelectCoursePageState extends ConsumerState<SelectCoursePage> {
                                   value: l['id'],
                                   child: Text(l['name']),
                                 )).toList(),
-                                onChanged: (value) => setState(() => _selectedLevel = value),
+                                onChanged: (value) => setState(() {
+                                  _selectedLevel = value;
+                                }),
                               ),
                               const SizedBox(height: 16),
                               
@@ -331,17 +361,37 @@ class _SelectCoursePageState extends ConsumerState<SelectCoursePage> {
                               const SizedBox(height: 16),
                               
                               // Course Selection Section
-                              const Text(
-                                'Select Courses',
-                                style: TextStyle(
-                                  fontSize: 20,
-                                  fontWeight: FontWeight.bold,
-                                  color: Color(0xFF1a1f3a),
-                                ),
+                              Row(
+                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                children: [
+                                  const Text(
+                                    'Select Courses',
+                                    style: TextStyle(
+                                      fontSize: 20,
+                                      fontWeight: FontWeight.bold,
+                                      color: Color(0xFF1a1f3a),
+                                    ),
+                                  ),
+                                  // Category Filter
+                                  DropdownButton<CourseCategory?>(
+                                    value: _selectedCategoryFilter,
+                                    hint: const Text('All Categories'),
+                                    items: [
+                                      const DropdownMenuItem(value: null, child: Text('All')),
+                                      ...CourseCategory.values.map((c) => DropdownMenuItem(
+                                        value: c,
+                                        child: Text(c.name.toUpperCase()),
+                                      )),
+                                    ],
+                                    onChanged: (val) => setState(() => _selectedCategoryFilter = val),
+                                    underline: Container(),
+                                  ),
+                                ],
                               ),
                               const SizedBox(height: 8),
                               Text(
-                                'Selected: ${selectedCourseIds.length} courses',
+                                'Selected: ${selectedCourseIds.length} courses' +
+                                (_selectedLevel != null ? ' (Filtered by Level $_selectedLevel)' : ''),
                                 style: const TextStyle(color: Colors.grey),
                               ),
                               const SizedBox(height: 16),
@@ -364,7 +414,14 @@ class _SelectCoursePageState extends ConsumerState<SelectCoursePage> {
                               const SizedBox(height: 16),
                               
                               // Course List
-                              ...filteredCourses.map((course) => _buildCourseCard(course)),
+                              filteredCourses.isEmpty 
+                                ? const Center(child: Padding(
+                                    padding: EdgeInsets.all(20),
+                                    child: Text('No courses found matching filters'),
+                                  ))
+                                : Column(
+                                    children: filteredCourses.map((course) => _buildCourseCard(course)).toList(),
+                                  ),
                               
                               const SizedBox(height: 24),
                               
@@ -471,13 +528,29 @@ class _SelectCoursePageState extends ConsumerState<SelectCoursePage> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(
-                    course.code,
-                    style: const TextStyle(
-                      fontWeight: FontWeight.bold,
-                      color: Color(0xFF1f2937),
-                    ),
-                  ),
+                   Row(
+                    children: [
+                      Text(
+                        course.code,
+                        style: const TextStyle(
+                          fontWeight: FontWeight.bold,
+                          color: Color(0xFF1f2937),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                        decoration: BoxDecoration(
+                           color: Colors.grey.shade100,
+                           borderRadius: BorderRadius.circular(4),
+                        ),
+                        child: Text(
+                          course.category.name.toUpperCase(),
+                          style: TextStyle(fontSize: 10, color: Colors.grey.shade700),
+                        ),
+                      ),
+                    ],
+                   ),
                   Text(
                     course.name,
                     style: const TextStyle(color: Color(0xFF6b7280)),
@@ -494,20 +567,4 @@ class _SelectCoursePageState extends ConsumerState<SelectCoursePage> {
       ),
     );
   }
-}
-
-class Course {
-  final String id;
-  final String code;
-  final String name;
-  final String category;
-  final int creditHours;
-
-  Course({
-    required this.id,
-    required this.code,
-    required this.name,
-    required this.category,
-    required this.creditHours,
-  });
 }

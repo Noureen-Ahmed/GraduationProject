@@ -200,36 +200,46 @@ class _StudentDashboardAppState extends ConsumerState<StudentDashboardApp> {
       final isAuthRoute = currentLocation == '/login' ||
           currentLocation == '/register' ||
           currentLocation == '/forgot-password' ||
-          currentLocation == '/verification' ||
           currentLocation == '/splash' ||
           currentLocation == '/welcome' ||
           currentLocation.startsWith('/guest/'); 
+      final isVerificationRoute = currentLocation == '/verification';
       final isOnboardingRoute = currentLocation == '/course-selection';
 
       authState.when(
         unauthenticated: () {
-          if (!isAuthRoute && !isOnboardingRoute) {
+          // Not logged in - redirect to login unless already on an auth page
+          if (!isAuthRoute && !isOnboardingRoute && !isVerificationRoute) {
              _router.go('/login');
           }
         },
         onboardingRequired: (user) {
-          if (!isOnboardingRoute) {
+          // User is logged in but hasn't completed onboarding
+          // Allow user to stay on verification OR course-selection page
+          // Only redirect if they're on neither of these pages
+          if (!isOnboardingRoute && !isVerificationRoute) {
             _router.go('/course-selection', extra: {'email': user.email});
           }
         },
         authenticated: (user) {
-          if (isAuthRoute || isOnboardingRoute || currentLocation == '/splash') {
+          // User is logged in AND has completed onboarding (isOnboardingComplete = true)
+          // ALWAYS go to home if on auth/splash/onboarding/verification routes
+          if (isAuthRoute || isOnboardingRoute || isVerificationRoute || currentLocation == '/splash') {
             _router.go('/home');
           }
         },
       );
     }
 
-    // Checking on build and listener
-    WidgetsBinding.instance.addPostFrameCallback((_) => handleRedirection());
+    // Only listen for state changes, don't run on every build
     ref.listen<AuthState>(authStateProvider, (previous, next) {
-      if (previous != next) handleRedirection();
+      if (previous != next) {
+        WidgetsBinding.instance.addPostFrameCallback((_) => handleRedirection());
+      }
     });
+    
+    // Initial check on first build
+    WidgetsBinding.instance.addPostFrameCallback((_) => handleRedirection());
 
     return MaterialApp.router(
       title: 'Student Dashboard',

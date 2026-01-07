@@ -1,6 +1,7 @@
 const express = require('express');
 const cors = require('cors');
 const mysql = require('mysql2/promise');
+const nodemailer = require('nodemailer');
 require('dotenv').config();
 
 const app = express();
@@ -26,6 +27,7 @@ const pool = mysql.createPool({
 async function initDatabase() {
     try {
         const connection = await pool.getConnection();
+        console.log('🔌 Connected to database');
 
         // Create users table
         await connection.execute(`
@@ -50,35 +52,111 @@ async function initDatabase() {
       )
     `);
 
+        // Create doctor_courses linking table (professors to their courses)
+        await connection.execute(`
+      CREATE TABLE IF NOT EXISTS doctor_courses (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        doctor_email VARCHAR(100) NOT NULL,
+        course_id VARCHAR(50) NOT NULL,
+        is_primary BOOLEAN DEFAULT FALSE,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE KEY unique_doctor_course (doctor_email, course_id),
+        INDEX idx_doctor (doctor_email),
+        INDEX idx_course (course_id)
+      )
+    `);
+
+        // Create courses table
+        await connection.execute(`
+      CREATE TABLE IF NOT EXISTS courses (
+        id VARCHAR(50) PRIMARY KEY,
+        code VARCHAR(20) NOT NULL,
+        name VARCHAR(100) NOT NULL,
+        category VARCHAR(50),
+        credit_hours INT,
+        professors JSON,
+        description TEXT,
+        schedule JSON,
+        content JSON,
+        assignments JSON,
+        exams JSON
+      )
+    `);
+
         // Create tasks table
         await connection.execute(`
       CREATE TABLE IF NOT EXISTS tasks (
         id VARCHAR(50) PRIMARY KEY,
         title VARCHAR(255) NOT NULL,
-        course VARCHAR(100),
+        course_id VARCHAR(50),
+        course_name VARCHAR(100),
         priority VARCHAR(20) DEFAULT 'low',
         completed BOOLEAN DEFAULT FALSE,
         description TEXT,
         user_id VARCHAR(50),
         due_date DATETIME,
+        points INT DEFAULT 100,
         notification_id INT,
+        created_by VARCHAR(100),
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        INDEX idx_user (user_id),
+        INDEX idx_course (course_id)
       )
     `);
 
-        // Insert default tasks if table is empty
-        const [rows] = await connection.execute('SELECT COUNT(*) as count FROM tasks');
-        if (rows[0].count === 0) {
-            await connection.execute(`
-                INSERT INTO tasks (id, title, course, priority, completed, description) VALUES
-                ('1', 'Complete Data Structures Assignment', 'Computer Science', 'high', FALSE, 'Implement binary search tree'),
-                ('2', 'Read Chapter 5 - Algorithms', 'Computer Science', 'medium', FALSE, 'Study sorting algorithms'),
-                ('3', 'Math Problem Set 7', 'Mathematics', 'low', FALSE, 'Linear algebra exercises'),
-                ('4', 'Physics Lab Report', 'Physics', 'high', FALSE, 'Write lab report')
-            `);
-            console.log('✅ Default tasks inserted');
-        }
+        // Create announcements table
+        await connection.execute(`
+      CREATE TABLE IF NOT EXISTS announcements (
+        id VARCHAR(50) PRIMARY KEY,
+        title VARCHAR(255) NOT NULL,
+        message TEXT,
+        date DATETIME DEFAULT CURRENT_TIMESTAMP,
+        type VARCHAR(30) DEFAULT 'general',
+        is_read BOOLEAN DEFAULT FALSE,
+        course_id VARCHAR(50),
+        created_by VARCHAR(100),
+        target_audience VARCHAR(20) DEFAULT 'all',
+        INDEX idx_course (course_id),
+        INDEX idx_date (date)
+      )
+    `);
+
+        // Create notifications table for student notifications
+        await connection.execute(`
+      CREATE TABLE IF NOT EXISTS notifications (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        user_email VARCHAR(100) NOT NULL,
+        title VARCHAR(255) NOT NULL,
+        message TEXT,
+        type VARCHAR(30) DEFAULT 'general',
+        reference_type VARCHAR(30),
+        reference_id VARCHAR(50),
+        is_read BOOLEAN DEFAULT FALSE,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        INDEX idx_user (user_email),
+        INDEX idx_read (is_read),
+        INDEX idx_created (created_at)
+      )
+    `);
+
+        // Create course_content table for lectures, materials, etc.
+        await connection.execute(`
+      CREATE TABLE IF NOT EXISTS course_content (
+        id VARCHAR(50) PRIMARY KEY,
+        course_id VARCHAR(50) NOT NULL,
+        title VARCHAR(255) NOT NULL,
+        description TEXT,
+        content_type VARCHAR(30) NOT NULL,
+        file_url VARCHAR(500),
+        week_number INT,
+        order_index INT DEFAULT 0,
+        created_by VARCHAR(100),
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        INDEX idx_course (course_id),
+        INDEX idx_type (content_type)
+      )
+    `);
 
         // Create verification codes table
         await connection.execute(`
@@ -95,530 +173,42 @@ async function initDatabase() {
       )
     `);
 
-        // Try to add new columns if they don't exist (for existing tables)
-        try { await connection.execute('ALTER TABLE users ADD COLUMN program VARCHAR(100)'); } catch (e) { }
-        try { await connection.execute('ALTER TABLE users ADD COLUMN is_verified BOOLEAN DEFAULT FALSE'); } catch (e) { }
+        // Create schedule_events table
+        await connection.execute(`
+      CREATE TABLE IF NOT EXISTS schedule_events (
+        id VARCHAR(50) PRIMARY KEY,
+        title VARCHAR(255) NOT NULL,
+        start_time DATETIME NOT NULL,
+        end_time DATETIME NOT NULL,
+        location VARCHAR(100),
+        instructor VARCHAR(100),
+        course_id VARCHAR(50),
+        description TEXT,
+        type VARCHAR(20) DEFAULT 'lecture',
+        user_email VARCHAR(100),
+        INDEX idx_course (course_id),
+        INDEX idx_user (user_email)
+      )
+    `);
 
         connection.release();
-        // Create announcements table
-        await connection.execute(`
-            CREATE TABLE IF NOT EXISTS announcements (
-                id VARCHAR(50) PRIMARY KEY,
-                title VARCHAR(255) NOT NULL,
-                message TEXT,
-                date DATETIME DEFAULT CURRENT_TIMESTAMP,
-                type ENUM('general', 'exam', 'assignment', 'event') DEFAULT 'general',
-                is_read BOOLEAN DEFAULT FALSE,
-                course_id VARCHAR(50)
-            )
-        `);
-
-        // Create schedule table
-        await connection.execute(`
-            CREATE TABLE IF NOT EXISTS schedule_events (
-                id VARCHAR(50) PRIMARY KEY,
-                title VARCHAR(255) NOT NULL,
-                start_time DATETIME NOT NULL,
-                end_time DATETIME NOT NULL,
-                location VARCHAR(100),
-                instructor VARCHAR(100),
-                course_id VARCHAR(50),
-                description TEXT,
-                type VARCHAR(20) DEFAULT 'lecture'
-            )
-        `);
-
-        // Create courses table
-        await connection.execute(`
-            CREATE TABLE IF NOT EXISTS courses (
-                id VARCHAR(50) PRIMARY KEY,
-                code VARCHAR(20) NOT NULL,
-                name VARCHAR(100) NOT NULL,
-                category VARCHAR(50),
-                credit_hours INT,
-                professors JSON,
-                description TEXT,
-                schedule JSON,
-                content JSON,
-                assignments JSON,
-                exams JSON
-            )
-        `);
-
-        // Seed courses if empty
-        const [courseRows] = await connection.execute('SELECT count(*) as count FROM courses');
-        if (courseRows[0].count === 0) {
-            console.log('🌱 Seeding courses...');
-            const courses = [
-                {
-                    id: '1', code: 'COMP101', name: 'Introduction to Computer Science', category: 'comp', creditHours: 4,
-                    professors: JSON.stringify(['Dr. Smith']),
-                    description: 'An introductory course to computer science concepts including programming fundamentals, data structures, and algorithms.',
-                    schedule: JSON.stringify([
-                        { day: 'Monday', time: '10:00 AM - 11:30 AM', location: 'Room 204' },
-                        { day: 'Wednesday', time: '10:00 AM - 11:30 AM', location: 'Room 204' },
-                        { day: 'Friday', time: '10:00 AM - 11:30 AM', location: 'Lab 101' }
-                    ]),
-                    content: JSON.stringify([
-                        { week: 1, topic: 'Introduction to Programming', description: 'Basic concepts of programming and problem-solving' },
-                        { week: 2, topic: 'Variables and Data Types', description: 'Understanding variables, data types, and memory management' }
-                    ]),
-                    assignments: JSON.stringify([
-                        { id: '1', title: 'Hello World Program', dueDate: new Date(Date.now() + 7 * 86400000).toISOString(), maxScore: 100, description: 'Write a simple program that displays "Hello, World!"' }
-                    ]),
-                    exams: JSON.stringify([
-                        { id: '1', title: 'Midterm Exam', date: new Date(Date.now() + 30 * 86400000).toISOString(), format: 'Written and Practical', gradingBreakdown: 'Theory: 60%, Practical: 40%' }
-                    ])
-                },
-                {
-                    id: '2', code: 'MATH101', name: 'Calculus I', category: 'math', creditHours: 4,
-                    professors: JSON.stringify(['Dr. Brown']),
-                    description: 'An introductory course to calculus covering limits, derivatives, and integrals.',
-                    schedule: JSON.stringify([
-                        { day: 'Tuesday', time: '2:00 PM - 3:30 PM', location: 'Room 305' },
-                        { day: 'Thursday', time: '2:00 PM - 3:30 PM', location: 'Room 305' }
-                    ]),
-                    content: JSON.stringify([
-                        { week: 1, topic: 'Limits and Continuity', description: 'Understanding limits and continuity of functions' },
-                        { week: 2, topic: 'Derivatives', description: 'Introduction to derivatives and differentiation rules' }
-                    ]),
-                    assignments: JSON.stringify([
-                        { id: '2', title: 'Derivative Problems Set', dueDate: new Date(Date.now() + 5 * 86400000).toISOString(), maxScore: 50, description: 'Solve problems on differentiation' }
-                    ]),
-                    exams: JSON.stringify([
-                        { id: '2', title: 'Calculus Midterm', date: new Date(Date.now() + 28 * 86400000).toISOString(), format: 'Written Exam', gradingBreakdown: 'Problem Solving: 70%, Theory: 30%' }
-                    ])
-                },
-                {
-                    id: '3', code: 'PHYS101', name: 'Physics I', category: 'phys', creditHours: 4,
-                    professors: JSON.stringify(['Prof. Johnson']),
-                    description: 'Mechanics and Thermodynamics covering motion, forces, energy, and heat.',
-                    schedule: JSON.stringify([
-                        { day: 'Monday', time: '2:00 PM - 3:30 PM', location: 'Room 201' },
-                        { day: 'Wednesday', time: '2:00 PM - 3:30 PM', location: 'Room 201' },
-                        { day: 'Friday', time: '2:00 PM - 4:00 PM', location: 'Lab 102' }
-                    ]),
-                    content: JSON.stringify([
-                        { week: 1, topic: 'Kinematics', description: 'Study of motion without considering forces' },
-                        { week: 2, topic: 'Newton\'s Laws', description: 'Forces and their effects on motion' }
-                    ]),
-                    assignments: JSON.stringify([
-                        { id: '3', title: 'Force Analysis Problems', dueDate: new Date(Date.now() + 6 * 86400000).toISOString(), maxScore: 75, description: 'Analyze forces in various scenarios' }
-                    ]),
-                    exams: JSON.stringify([
-                        { id: '3', title: 'Physics Midterm', date: new Date(Date.now() + 32 * 86400000).toISOString(), format: 'Written + Lab Practical', gradingBreakdown: 'Theory: 50%, Practical: 50%' }
-                    ])
-                },
-                {
-                    id: '4', code: 'COMP201', name: 'Data Structures', category: 'comp', creditHours: 4,
-                    professors: JSON.stringify(['Dr. Smith']),
-                    description: 'Advanced data structures including trees, graphs, and hash tables.',
-                    schedule: JSON.stringify([
-                        { day: 'Tuesday', time: '10:00 AM - 11:30 AM', location: 'Room 203' },
-                        { day: 'Thursday', time: '10:00 AM - 11:30 AM', location: 'Room 203' }
-                    ]),
-                    content: JSON.stringify([
-                        { week: 1, topic: 'Arrays and Linked Lists', description: 'Linear data structures' },
-                        { week: 2, topic: 'Stacks and Queues', description: 'LIFO and FIFO data structures' }
-                    ]),
-                    assignments: JSON.stringify([
-                        { id: '4', title: 'Binary Tree Implementation', dueDate: new Date(Date.now() + 8 * 86400000).toISOString(), maxScore: 100, description: 'Implement binary search tree with insert, delete, and search operations' }
-                    ]),
-                    exams: JSON.stringify([
-                        { id: '4', title: 'Data Structures Exam', date: new Date(Date.now() + 35 * 86400000).toISOString(), format: 'Written + Coding', gradingBreakdown: 'Theory: 40%, Coding: 60%' }
-                    ])
-                }
-            ];
-
-            for (const course of courses) {
-                await connection.execute(
-                    'INSERT INTO courses (id, code, name, category, credit_hours, professors, description, schedule, content, assignments, exams) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-                    [course.id, course.code, course.name, course.category, course.creditHours, course.professors, course.description, course.schedule, course.content, course.assignments, course.exams]
-                );
-            }
-        }
-
         console.log('✅ Database tables initialized');
     } catch (error) {
-        console.error('❌ Database init error:', error.message);
+        console.error('❌ Database initialization error:', error);
     }
 }
 
-// ============ AUTH ROUTES ============
-
-// Login
-app.post('/api/auth/login', async (req, res) => {
-    try {
-        const { email, password } = req.body;
-
-        const [rows] = await pool.execute(
-            'SELECT * FROM users WHERE email = ? AND password = ?',
-            [email, password]
-        );
-
-        if (rows.length === 0) {
-            return res.status(401).json({ error: 'Invalid credentials' });
-        }
-
-        const user = formatUser(rows[0]);
-        console.log(`✅ Login successful: ${email}`);
-        res.json({ success: true, user });
-    } catch (error) {
-        console.error('Login error:', error);
-        res.status(500).json({ error: 'Login failed' });
+// Email transporter (configure with actual SMTP settings)
+const transporter = nodemailer.createTransport({
+    service: 'gmail',
+    auth: {
+        user: process.env.EMAIL_USER || 'noreply@example.com',
+        pass: process.env.EMAIL_PASS || 'password'
     }
 });
 
-// Register
-app.post('/api/auth/register', async (req, res) => {
-    try {
-        const { name, email, password } = req.body;
+// ============ HELPER FUNCTIONS ============
 
-        // Check if user exists
-        const [existing] = await pool.execute('SELECT id FROM users WHERE email = ?', [email]);
-        if (existing.length > 0) {
-            return res.status(409).json({ error: 'User already exists' });
-        }
-
-        const id = Date.now().toString();
-        const studentId = `STU${id}`;
-        const avatar = `https://ui-avatars.com/api/?name=${encodeURIComponent(name)}`;
-
-        await pool.execute(`
-      INSERT INTO users (id, name, email, password, avatar, student_id, mode, is_onboarding_complete)
-      VALUES (?, ?, ?, ?, ?, ?, 'student', FALSE)
-    `, [id, name, email, password, avatar, studentId]);
-
-        const user = {
-            id,
-            name,
-            email,
-            avatar,
-            studentId,
-            mode: 'student',
-            isOnboardingComplete: false,
-            enrolledCourses: []
-        };
-
-        console.log(`✅ Registration successful: ${email}`);
-        res.json({ success: true, user });
-    } catch (error) {
-        console.error('Registration error:', error);
-        res.status(500).json({ error: 'Registration failed' });
-    }
-});
-
-// Get User
-app.get('/api/users/:email', async (req, res) => {
-    try {
-        const { email } = req.params;
-        const [rows] = await pool.execute('SELECT * FROM users WHERE email = ?', [email]);
-
-        if (rows.length === 0) {
-            return res.status(404).json({ error: 'User not found' });
-        }
-
-        const user = formatUser(rows[0]);
-        res.json({ success: true, user });
-    } catch (error) {
-        console.error('Get user error:', error);
-        res.status(500).json({ error: 'Failed to get user' });
-    }
-});
-
-// Update User
-app.put('/api/users/:email', async (req, res) => {
-    try {
-        const { email } = req.params;
-        const { name, avatar, major, department, gpa, level, mode, isOnboardingComplete, enrolledCourses } = req.body;
-
-        const coursesStr = Array.isArray(enrolledCourses) ? enrolledCourses.join(',') : '';
-
-        await pool.execute(`
-      UPDATE users SET
-        name = ?,
-        avatar = ?,
-        major = ?,
-        department = ?,
-        gpa = ?,
-        level = ?,
-        mode = ?,
-        is_onboarding_complete = ?,
-        enrolled_courses = ?
-      WHERE email = ?
-    `, [name, avatar, major, department, gpa, level, mode, isOnboardingComplete ? 1 : 0, coursesStr, email]);
-
-        // Return the updated user
-        const [rows] = await pool.execute('SELECT * FROM users WHERE email = ?', [email]);
-        const user = rows.length > 0 ? formatUser(rows[0]) : null;
-
-        console.log(`✅ User updated: ${email}`);
-        res.json({ success: true, user });
-    } catch (error) {
-        console.error('Update user error:', error);
-        res.status(500).json({ error: 'Failed to update user' });
-    }
-});
-
-// Change Password
-app.post('/api/auth/change-password', async (req, res) => {
-    try {
-        const { email, currentPassword, newPassword } = req.body;
-
-        const [rows] = await pool.execute(
-            'SELECT id FROM users WHERE email = ? AND password = ?',
-            [email, currentPassword]
-        );
-
-        if (rows.length === 0) {
-            return res.status(401).json({ error: 'Current password is incorrect' });
-        }
-
-        await pool.execute('UPDATE users SET password = ? WHERE email = ?', [newPassword, email]);
-
-        console.log(`✅ Password changed: ${email}`);
-        res.json({ success: true });
-    } catch (error) {
-        console.error('Change password error:', error);
-        res.status(500).json({ error: 'Failed to change password' });
-    }
-});
-
-// Delete all users (for development/testing)
-app.delete('/api/users', async (req, res) => {
-    try {
-        await pool.execute('DELETE FROM users');
-        console.log('🗑️ All users deleted');
-        res.json({ success: true, message: 'All users deleted' });
-    } catch (error) {
-        console.error('Delete all users error:', error);
-        res.status(500).json({ error: 'Failed to delete users' });
-    }
-});
-
-// ============ VERIFICATION CODES ============
-
-// Store verification code (called from frontend after sending email)
-app.post('/api/auth/store-code', async (req, res) => {
-    try {
-        const { email, code, type } = req.body;
-
-        // Delete any existing codes for this email and type
-        await pool.execute('DELETE FROM verification_codes WHERE email = ? AND type = ?', [email, type]);
-
-        // Insert new code with 10 minute expiry
-        const expiresAt = new Date(Date.now() + 10 * 60 * 1000);
-        await pool.execute(
-            'INSERT INTO verification_codes (email, code, type, expires_at) VALUES (?, ?, ?, ?)',
-            [email, code, type, expiresAt]
-        );
-
-        console.log(`✅ Verification code stored for: ${email}`);
-        res.json({ success: true });
-    } catch (error) {
-        console.error('Store code error:', error);
-        res.status(500).json({ error: 'Failed to store code' });
-    }
-});
-
-// Verify code
-app.post('/api/auth/verify-code', async (req, res) => {
-    try {
-        const { email, code, type } = req.body;
-
-        const [rows] = await pool.execute(
-            'SELECT * FROM verification_codes WHERE email = ? AND code = ? AND type = ? AND used = FALSE AND expires_at > NOW()',
-            [email, code, type]
-        );
-
-        if (rows.length === 0) {
-            return res.status(400).json({ error: 'Invalid or expired code' });
-        }
-
-        // Mark code as used
-        await pool.execute('UPDATE verification_codes SET used = TRUE WHERE id = ?', [rows[0].id]);
-
-        // If registration verification, mark user as verified
-        if (type === 'registration') {
-            await pool.execute('UPDATE users SET is_verified = TRUE WHERE email = ?', [email]);
-        }
-
-        console.log(`✅ Code verified for: ${email}`);
-        res.json({ success: true, verified: true });
-    } catch (error) {
-        console.error('Verify code error:', error);
-        res.status(500).json({ error: 'Failed to verify code' });
-    }
-});
-
-// Reset password (using email only - after verification)
-app.post('/api/auth/reset-password', async (req, res) => {
-    try {
-        const { email, newPassword } = req.body;
-
-        // Just check user exists
-        const [users] = await pool.execute('SELECT id FROM users WHERE email = ?', [email]);
-        if (users.length === 0) {
-            return res.status(404).json({ error: 'User not found' });
-        }
-
-        // Update password directly (verification was done on previous page)
-        await pool.execute('UPDATE users SET password = ? WHERE email = ?', [newPassword, email]);
-
-        // Clean up any verification codes
-        await pool.execute('DELETE FROM verification_codes WHERE email = ?', [email]);
-
-        console.log(`✅ Password reset for: ${email}`);
-        res.json({ success: true });
-    } catch (error) {
-        console.error('Reset password error:', error);
-        res.status(500).json({ error: 'Failed to reset password' });
-    }
-});
-
-// ============ TASKS (MySQL Persistent Storage) ============
-
-// Helper function to format task data
-function formatTask(row) {
-    return {
-        id: row.id,
-        title: row.title,
-        course: row.course,
-        priority: row.priority,
-        completed: row.completed === 1,
-        description: row.description,
-        userId: row.user_id,
-        dueDate: row.due_date,
-        notificationId: row.notification_id
-    };
-}
-
-// Get all tasks
-app.get('/api/tasks', async (req, res) => {
-    try {
-        const [rows] = await pool.execute('SELECT * FROM tasks ORDER BY created_at DESC');
-        const tasks = rows.map(formatTask);
-        res.json({ success: true, tasks });
-    } catch (error) {
-        console.error('Get tasks error:', error);
-        res.status(500).json({ error: 'Failed to get tasks' });
-    }
-});
-
-// Add task
-app.post('/api/tasks', async (req, res) => {
-    try {
-        const { title, course, priority, description, userId, dueDate, notificationId } = req.body;
-        const id = Date.now().toString();
-
-        await pool.execute(`
-            INSERT INTO tasks (id, title, course, priority, completed, description, user_id, due_date, notification_id)
-            VALUES (?, ?, ?, ?, FALSE, ?, ?, ?, ?)
-        `, [id, title, course || 'General', priority || 'low', description || '', userId || null, dueDate || null, notificationId || null]);
-
-        const task = {
-            id,
-            title,
-            course: course || 'General',
-            priority: priority || 'low',
-            completed: false,
-            description: description || '',
-            userId,
-            dueDate,
-            notificationId
-        };
-
-        console.log(`✅ Task added to DB: ${title}`);
-        res.json({ success: true, task });
-    } catch (error) {
-        console.error('Add task error:', error);
-        res.status(500).json({ error: 'Failed to add task' });
-    }
-});
-
-// Update task
-app.put('/api/tasks/:id', async (req, res) => {
-    try {
-        const { id } = req.params;
-        const { title, course, priority, completed, description, dueDate } = req.body;
-
-        await pool.execute(`
-            UPDATE tasks SET
-                title = COALESCE(?, title),
-                course = COALESCE(?, course),
-                priority = COALESCE(?, priority),
-                completed = COALESCE(?, completed),
-                description = COALESCE(?, description),
-                due_date = COALESCE(?, due_date)
-            WHERE id = ?
-        `, [title, course, priority, completed, description, dueDate, id]);
-
-        // Get updated task
-        const [rows] = await pool.execute('SELECT * FROM tasks WHERE id = ?', [id]);
-        if (rows.length === 0) {
-            return res.status(404).json({ error: 'Task not found' });
-        }
-
-        console.log(`✅ Task updated in DB: ${id}`);
-        res.json({ success: true, task: formatTask(rows[0]) });
-    } catch (error) {
-        console.error('Update task error:', error);
-        res.status(500).json({ error: 'Failed to update task' });
-    }
-});
-
-// Toggle task completion
-app.patch('/api/tasks/:id/toggle', async (req, res) => {
-    try {
-        const { id } = req.params;
-
-        await pool.execute('UPDATE tasks SET completed = NOT completed WHERE id = ?', [id]);
-
-        // Get updated task
-        const [rows] = await pool.execute('SELECT * FROM tasks WHERE id = ?', [id]);
-        if (rows.length === 0) {
-            return res.status(404).json({ error: 'Task not found' });
-        }
-
-        console.log(`✅ Task toggled in DB: ${id} -> ${rows[0].completed}`);
-        res.json({ success: true, task: formatTask(rows[0]) });
-    } catch (error) {
-        console.error('Toggle task error:', error);
-        res.status(500).json({ error: 'Failed to toggle task' });
-    }
-});
-
-// Delete task
-app.delete('/api/tasks/:id', async (req, res) => {
-    try {
-        const { id } = req.params;
-        await pool.execute('DELETE FROM tasks WHERE id = ?', [id]);
-        console.log(`✅ Task deleted from DB: ${id}`);
-        res.json({ success: true });
-    } catch (error) {
-        console.error('Delete task error:', error);
-        res.status(500).json({ error: 'Failed to delete task' });
-    }
-});
-
-// Delete all tasks (for development/testing)
-app.delete('/api/tasks', async (req, res) => {
-    try {
-        await pool.execute('DELETE FROM tasks');
-        console.log('🗑️ All tasks deleted');
-        res.json({ success: true, message: 'All tasks deleted' });
-    } catch (error) {
-        console.error('Delete all tasks error:', error);
-        res.status(500).json({ error: 'Failed to delete tasks' });
-    }
-});
-
-// Health check
-app.get('/api/health', (req, res) => {
-    res.json({ status: 'ok', timestamp: new Date().toISOString() });
-});
-
-// Helper function to format user data
 function formatUser(row) {
     const coursesStr = row.enrolled_courses || '';
     const courses = coursesStr ? coursesStr.split(',').filter(s => s) : [];
@@ -634,16 +224,569 @@ function formatUser(row) {
         gpa: row.gpa ? parseFloat(row.gpa) : null,
         level: row.level,
         mode: row.mode || 'student',
-        isOnboardingComplete: row.is_onboarding_complete === 1,
+        isOnboardingComplete: !!row.is_onboarding_complete,
+        isVerified: !!row.is_verified,
         enrolledCourses: courses
     };
 }
 
-// ============ ANNOUNCEMENTS ============
+function generateId() {
+    return Date.now().toString(36) + Math.random().toString(36).substr(2);
+}
+
+// Safe JSON parsing helper
+function parseJson(field) {
+    if (!field) return [];
+    if (typeof field === 'object') return field;
+    try {
+        return JSON.parse(field);
+    } catch (e) {
+        return [];
+    }
+}
+
+// Send notification to students enrolled in a course
+async function notifyStudentsInCourse(courseId, notification) {
+    try {
+        // Get all students enrolled in this course
+        const [users] = await pool.execute(`
+            SELECT email, enrolled_courses FROM users 
+            WHERE mode = 'student' AND enrolled_courses LIKE ?
+        `, [`%${courseId}%`]);
+
+        for (const user of users) {
+            // Insert notification for each student
+            await pool.execute(`
+                INSERT INTO notifications (user_email, title, message, type, reference_type, reference_id)
+                VALUES (?, ?, ?, ?, ?, ?)
+            `, [
+                user.email,
+                notification.title,
+                notification.message,
+                notification.type || 'general',
+                notification.referenceType || 'announcement',
+                notification.referenceId || null
+            ]);
+        }
+
+        console.log(`📢 Notified ${users.length} students about: ${notification.title}`);
+        return users.length;
+    } catch (error) {
+        console.error('Error sending notifications:', error);
+        return 0;
+    }
+}
+
+// ============ AUTH ENDPOINTS ============
+
+app.post('/api/auth/register', async (req, res) => {
+    try {
+        const { name, email, password } = req.body;
+
+        // Check if user exists
+        const [existing] = await pool.execute('SELECT id FROM users WHERE email = ?', [email]);
+        if (existing.length > 0) {
+            return res.status(409).json({ error: 'User already exists' });
+        }
+
+        const id = generateId();
+        const mode = email.includes('doctor') || email.includes('professor') || email.includes('dr.') ? 'professor' : 'student';
+        const studentId = mode === 'student' ? `STU${Date.now().toString().slice(-8)}` : null;
+
+        await pool.execute(`
+            INSERT INTO users (id, name, email, password, student_id, mode, is_onboarding_complete)
+            VALUES (?, ?, ?, ?, ?, ?, FALSE)
+        `, [id, name, email, password, studentId, mode]);
+
+        // Generate verification code
+        const code = Math.floor(1000 + Math.random() * 9000).toString();
+        const expiresAt = new Date(Date.now() + 15 * 60 * 1000); // 15 minutes
+
+        await pool.execute(`
+            INSERT INTO verification_codes (email, code, type, expires_at)
+            VALUES (?, ?, 'registration', ?)
+        `, [email, code, expiresAt]);
+
+        // Try to send email
+        try {
+            await transporter.sendMail({
+                from: process.env.EMAIL_USER,
+                to: email,
+                subject: 'Verify Your Account',
+                text: `Your verification code is: ${code}`,
+                html: `<p>Your verification code is: <strong>${code}</strong></p>`
+            });
+            console.log(`📧 Verification email sent to ${email} with code ${code}`);
+        } catch (emailError) {
+            console.log(`📧 Email not configured. Code for ${email}: ${code}`);
+        }
+
+        const [rows] = await pool.execute('SELECT * FROM users WHERE email = ?', [email]);
+        const user = formatUser(rows[0]);
+
+        console.log(`✅ User registered: ${email} (${mode})`);
+        res.json({ success: true, user });
+    } catch (error) {
+        console.error('Register error:', error);
+        res.status(500).json({ error: 'Registration failed' });
+    }
+});
+
+app.post('/api/auth/login', async (req, res) => {
+    try {
+        const { email, password } = req.body;
+        const [rows] = await pool.execute(
+            'SELECT * FROM users WHERE email = ? AND password = ?',
+            [email, password]
+        );
+
+        if (rows.length === 0) {
+            return res.status(401).json({ error: 'Invalid credentials' });
+        }
+
+        const user = formatUser(rows[0]);
+        console.log(`✅ User logged in: ${email}`);
+        res.json({ success: true, user });
+    } catch (error) {
+        console.error('Login error:', error);
+        res.status(500).json({ error: 'Login failed' });
+    }
+});
+
+app.post('/api/auth/send-code', async (req, res) => {
+    try {
+        const { email, type } = req.body;
+        const code = Math.floor(1000 + Math.random() * 9000).toString();
+        const expiresAt = new Date(Date.now() + 15 * 60 * 1000);
+
+        // Delete old codes
+        await pool.execute('DELETE FROM verification_codes WHERE email = ? AND type = ?', [email, type]);
+
+        await pool.execute(`
+            INSERT INTO verification_codes (email, code, type, expires_at)
+            VALUES (?, ?, ?, ?)
+        `, [email, code, type, expiresAt]);
+
+        try {
+            await transporter.sendMail({
+                from: process.env.EMAIL_USER,
+                to: email,
+                subject: 'Verification Code',
+                text: `Your verification code is: ${code}`,
+                html: `<p>Your verification code is: <strong>${code}</strong></p>`
+            });
+        } catch (emailError) {
+            console.log(`📧 Email not configured. Code for ${email}: ${code}`);
+        }
+
+        res.json({ success: true });
+    } catch (error) {
+        console.error('Send code error:', error);
+        res.status(500).json({ error: 'Failed to send code' });
+    }
+});
+
+app.post('/api/auth/verify-code', async (req, res) => {
+    try {
+        const { email, code, type } = req.body;
+        const [rows] = await pool.execute(`
+            SELECT * FROM verification_codes 
+            WHERE email = ? AND code = ? AND type = ? AND used = FALSE AND expires_at > NOW()
+            ORDER BY created_at DESC LIMIT 1
+        `, [email, code, type]);
+
+        if (rows.length === 0) {
+            return res.status(400).json({ error: 'Invalid or expired code' });
+        }
+
+        // Mark code as used
+        await pool.execute('UPDATE verification_codes SET used = TRUE WHERE id = ?', [rows[0].id]);
+
+        // Update user as verified
+        await pool.execute('UPDATE users SET is_verified = TRUE WHERE email = ?', [email]);
+
+        res.json({ success: true });
+    } catch (error) {
+        console.error('Verify code error:', error);
+        res.status(500).json({ error: 'Verification failed' });
+    }
+});
+
+app.post('/api/auth/reset-password', async (req, res) => {
+    try {
+        const { email, newPassword } = req.body;
+        await pool.execute('UPDATE users SET password = ? WHERE email = ?', [newPassword, email]);
+        res.json({ success: true });
+    } catch (error) {
+        console.error('Reset password error:', error);
+        res.status(500).json({ error: 'Password reset failed' });
+    }
+});
+
+// ============ USER ENDPOINTS ============
+
+app.get('/api/users/:email', async (req, res) => {
+    try {
+        const { email } = req.params;
+        const [rows] = await pool.execute('SELECT * FROM users WHERE email = ?', [email]);
+
+        if (rows.length === 0) {
+            return res.status(404).json({ error: 'User not found' });
+        }
+
+        res.json({ success: true, user: formatUser(rows[0]) });
+    } catch (error) {
+        console.error('Get user error:', error);
+        res.status(500).json({ error: 'Failed to get user' });
+    }
+});
+
+app.put('/api/users/:email', async (req, res) => {
+    try {
+        const { email } = req.params;
+        const { name, avatar, major, department, gpa, level, mode, isOnboardingComplete, enrolledCourses } = req.body;
+
+        const coursesStr = Array.isArray(enrolledCourses) ? enrolledCourses.join(',') : '';
+
+        await pool.execute(`
+            UPDATE users SET
+                name = ?,
+                avatar = ?,
+                major = ?,
+                department = ?,
+                gpa = ?,
+                level = ?,
+                mode = ?,
+                is_onboarding_complete = ?,
+                enrolled_courses = ?
+            WHERE email = ?
+        `, [name, avatar, major, department, gpa, level, mode, isOnboardingComplete ? 1 : 0, coursesStr, email]);
+
+        const [rows] = await pool.execute('SELECT * FROM users WHERE email = ?', [email]);
+        const user = rows.length > 0 ? formatUser(rows[0]) : null;
+
+        console.log(`✅ User updated: ${email}`);
+        res.json({ success: true, user });
+    } catch (error) {
+        console.error('Update user error:', error);
+        res.status(500).json({ error: 'Failed to update user' });
+    }
+});
+
+// ============ DOCTOR COURSES ENDPOINTS ============
+
+// Get courses for a specific doctor
+app.get('/api/doctor-courses/:email', async (req, res) => {
+    try {
+        const { email } = req.params;
+
+        // Get course IDs for this doctor
+        const [doctorCourses] = await pool.execute(`
+            SELECT course_id, is_primary FROM doctor_courses WHERE doctor_email = ?
+        `, [email]);
+
+        if (doctorCourses.length === 0) {
+            return res.json({ success: true, courses: [] });
+        }
+
+        // Get full course details
+        const courseIds = doctorCourses.map(dc => dc.course_id);
+        const placeholders = courseIds.map(() => '?').join(',');
+        const [courses] = await pool.execute(`
+            SELECT * FROM courses WHERE id IN (${placeholders})
+        `, courseIds);
+
+        // Parse JSON fields
+        const formattedCourses = courses.map(course => ({
+            ...course,
+            professors: parseJson(course.professors),
+            schedule: parseJson(course.schedule),
+            content: parseJson(course.content),
+            assignments: parseJson(course.assignments),
+            exams: parseJson(course.exams),
+        }));
+
+        res.json({ success: true, courses: formattedCourses });
+    } catch (error) {
+        console.error('Get doctor courses error:', error);
+        res.status(500).json({ error: 'Failed to get doctor courses' });
+    }
+});
+
+// Assign a course to a doctor
+app.post('/api/doctor-courses', async (req, res) => {
+    try {
+        const { doctorEmail, courseId, isPrimary } = req.body;
+
+        await pool.execute(`
+            INSERT INTO doctor_courses (doctor_email, course_id, is_primary)
+            VALUES (?, ?, ?)
+            ON DUPLICATE KEY UPDATE is_primary = ?
+        `, [doctorEmail, courseId, isPrimary || false, isPrimary || false]);
+
+        res.json({ success: true });
+    } catch (error) {
+        console.error('Assign doctor course error:', error);
+        res.status(500).json({ error: 'Failed to assign course' });
+    }
+});
+
+// ============ CONTENT CREATION ENDPOINTS ============
+
+// Create lecture/content for a course
+app.post('/api/content', async (req, res) => {
+    try {
+        const { courseId, title, description, contentType, fileUrl, weekNumber, createdBy } = req.body;
+
+        const id = generateId();
+
+        await pool.execute(`
+            INSERT INTO course_content (id, course_id, title, description, content_type, file_url, week_number, created_by)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        `, [id, courseId, title, description, contentType, fileUrl, weekNumber, createdBy]);
+
+        // Notify students
+        await notifyStudentsInCourse(courseId, {
+            title: `New ${contentType}: ${title}`,
+            message: description,
+            type: contentType,
+            referenceType: 'content',
+            referenceId: id
+        });
+
+        // Also create an announcement
+        const announcementId = generateId();
+        await pool.execute(`
+            INSERT INTO announcements (id, title, message, type, course_id, created_by)
+            VALUES (?, ?, ?, ?, ?, ?)
+        `, [announcementId, `New ${contentType}: ${title}`, description, contentType, courseId, createdBy]);
+
+        console.log(`✅ Content created: ${title} for course ${courseId}`);
+        res.json({ success: true, contentId: id });
+    } catch (error) {
+        console.error('Create content error:', error);
+        res.status(500).json({ error: 'Failed to create content' });
+    }
+});
+
+// Create assignment for a course
+app.post('/api/assignments', async (req, res) => {
+    try {
+        const { courseId, title, description, dueDate, points, createdBy } = req.body;
+
+        const id = generateId();
+
+        // Get course name
+        const [courseRows] = await pool.execute('SELECT name FROM courses WHERE id = ?', [courseId]);
+        const courseName = courseRows.length > 0 ? courseRows[0].name : 'Unknown Course';
+
+        // Create task for the assignment
+        await pool.execute(`
+            INSERT INTO tasks (id, title, course_id, course_name, priority, description, due_date, points, created_by)
+            VALUES (?, ?, ?, ?, 'medium', ?, ?, ?, ?)
+        `, [id, title, courseId, courseName, description, dueDate, points, createdBy]);
+
+        // Notify students
+        await notifyStudentsInCourse(courseId, {
+            title: `New Assignment: ${title}`,
+            message: `Due: ${new Date(dueDate).toLocaleDateString()}. ${description}`,
+            type: 'assignment',
+            referenceType: 'task',
+            referenceId: id
+        });
+
+        // Create announcement
+        const announcementId = generateId();
+        await pool.execute(`
+            INSERT INTO announcements (id, title, message, type, course_id, created_by)
+            VALUES (?, ?, ?, 'assignment', ?, ?)
+        `, [announcementId, `New Assignment: ${title}`, `Due: ${new Date(dueDate).toLocaleDateString()}`, courseId, createdBy]);
+
+        console.log(`✅ Assignment created: ${title} for course ${courseId}`);
+        res.json({ success: true, assignmentId: id });
+    } catch (error) {
+        console.error('Create assignment error:', error);
+        res.status(500).json({ error: 'Failed to create assignment' });
+    }
+});
+
+// Create exam for a course
+app.post('/api/exams', async (req, res) => {
+    try {
+        const { courseId, title, description, examDate, points, createdBy } = req.body;
+
+        const id = generateId();
+
+        // Get course name
+        const [courseRows] = await pool.execute('SELECT name FROM courses WHERE id = ?', [courseId]);
+        const courseName = courseRows.length > 0 ? courseRows[0].name : 'Unknown Course';
+
+        // Create task for the exam
+        await pool.execute(`
+            INSERT INTO tasks (id, title, course_id, course_name, priority, description, due_date, points, created_by)
+            VALUES (?, ?, ?, ?, 'high', ?, ?, ?, ?)
+        `, [id, title, courseId, courseName, description, examDate, points, createdBy]);
+
+        // Notify students
+        await notifyStudentsInCourse(courseId, {
+            title: `Exam Scheduled: ${title}`,
+            message: `Date: ${new Date(examDate).toLocaleDateString()}. ${description}`,
+            type: 'exam',
+            referenceType: 'task',
+            referenceId: id
+        });
+
+        // Create announcement
+        const announcementId = generateId();
+        await pool.execute(`
+            INSERT INTO announcements (id, title, message, type, course_id, created_by)
+            VALUES (?, ?, ?, 'exam', ?, ?)
+        `, [announcementId, `Exam Scheduled: ${title}`, `Date: ${new Date(examDate).toLocaleDateString()}`, courseId, createdBy]);
+
+        console.log(`✅ Exam created: ${title} for course ${courseId}`);
+        res.json({ success: true, examId: id });
+    } catch (error) {
+        console.error('Create exam error:', error);
+        res.status(500).json({ error: 'Failed to create exam' });
+    }
+});
+
+// ============ NOTIFICATIONS ENDPOINTS ============
+
+// Get notifications for a user
+app.get('/api/notifications/:email', async (req, res) => {
+    try {
+        const { email } = req.params;
+        const [rows] = await pool.execute(`
+            SELECT * FROM notifications 
+            WHERE user_email = ? 
+            ORDER BY created_at DESC 
+            LIMIT 50
+        `, [email]);
+
+        res.json({ success: true, notifications: rows });
+    } catch (error) {
+        console.error('Get notifications error:', error);
+        res.status(500).json({ error: 'Failed to get notifications' });
+    }
+});
+
+// Mark notification as read
+app.put('/api/notifications/:id/read', async (req, res) => {
+    try {
+        const { id } = req.params;
+        await pool.execute('UPDATE notifications SET is_read = TRUE WHERE id = ?', [id]);
+        res.json({ success: true });
+    } catch (error) {
+        console.error('Mark notification read error:', error);
+        res.status(500).json({ error: 'Failed to mark notification as read' });
+    }
+});
+
+// Mark all notifications as read for a user
+app.put('/api/notifications/read-all/:email', async (req, res) => {
+    try {
+        const { email } = req.params;
+        await pool.execute('UPDATE notifications SET is_read = TRUE WHERE user_email = ?', [email]);
+        res.json({ success: true });
+    } catch (error) {
+        console.error('Mark all notifications read error:', error);
+        res.status(500).json({ error: 'Failed to mark notifications as read' });
+    }
+});
+
+// ============ TASKS ENDPOINTS ============
+
+app.get('/api/tasks', async (req, res) => {
+    try {
+        const userId = req.query.userId;
+        let query = 'SELECT * FROM tasks ORDER BY due_date ASC';
+        let params = [];
+
+        if (userId) {
+            query = 'SELECT * FROM tasks WHERE user_id = ? ORDER BY due_date ASC';
+            params = [userId];
+        }
+
+        const [rows] = await pool.execute(query, params);
+        res.json({ success: true, tasks: rows });
+    } catch (error) {
+        console.error('Get tasks error:', error);
+        res.status(500).json({ error: 'Failed to get tasks' });
+    }
+});
+
+app.post('/api/tasks', async (req, res) => {
+    try {
+        const { id, title, course, priority, description, userId, dueDate } = req.body;
+        const taskId = id || generateId();
+
+        await pool.execute(`
+            INSERT INTO tasks (id, title, course_name, priority, description, user_id, due_date)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+        `, [taskId, title, course, priority, description, userId, dueDate]);
+
+        res.json({ success: true, taskId });
+    } catch (error) {
+        console.error('Create task error:', error);
+        res.status(500).json({ error: 'Failed to create task' });
+    }
+});
+
+app.put('/api/tasks/:id', async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { title, completed, priority, dueDate } = req.body;
+
+        await pool.execute(`
+            UPDATE tasks SET title = ?, completed = ?, priority = ?, due_date = ?
+            WHERE id = ?
+        `, [title, completed, priority, dueDate, id]);
+
+        res.json({ success: true });
+    } catch (error) {
+        console.error('Update task error:', error);
+        res.status(500).json({ error: 'Failed to update task' });
+    }
+});
+
+app.delete('/api/tasks/:id', async (req, res) => {
+    try {
+        const { id } = req.params;
+        await pool.execute('DELETE FROM tasks WHERE id = ?', [id]);
+        res.json({ success: true });
+    } catch (error) {
+        console.error('Delete task error:', error);
+        res.status(500).json({ error: 'Failed to delete task' });
+    }
+});
+
+// ============ ANNOUNCEMENTS ENDPOINTS ============
 
 app.get('/api/announcements', async (req, res) => {
     try {
-        const [rows] = await pool.execute('SELECT * FROM announcements ORDER BY date DESC');
+        const { courseId, userEmail } = req.query;
+
+        let query = 'SELECT * FROM announcements ORDER BY date DESC LIMIT 50';
+        let params = [];
+
+        if (courseId) {
+            query = 'SELECT * FROM announcements WHERE course_id = ? ORDER BY date DESC';
+            params = [courseId];
+        } else if (userEmail) {
+            // Get announcements for courses the user is enrolled in
+            const [userRows] = await pool.execute('SELECT enrolled_courses FROM users WHERE email = ?', [userEmail]);
+            if (userRows.length > 0 && userRows[0].enrolled_courses) {
+                const courseIds = userRows[0].enrolled_courses.split(',').filter(c => c);
+                if (courseIds.length > 0) {
+                    const placeholders = courseIds.map(() => '?').join(',');
+                    query = `SELECT * FROM announcements WHERE course_id IN (${placeholders}) OR course_id IS NULL ORDER BY date DESC`;
+                    params = courseIds;
+                }
+            }
+        }
+
+        const [rows] = await pool.execute(query, params);
         res.json({ success: true, announcements: rows });
     } catch (error) {
         console.error('Get announcements error:', error);
@@ -653,69 +796,47 @@ app.get('/api/announcements', async (req, res) => {
 
 app.post('/api/announcements', async (req, res) => {
     try {
-        const { title, message, type, courseId } = req.body;
-        const id = Date.now().toString();
-        await pool.execute(
-            'INSERT INTO announcements (id, title, message, type, course_id) VALUES (?, ?, ?, ?, ?)',
-            [id, title, message, type || 'general', courseId || null]
-        );
-        res.json({ success: true, id });
+        const { title, message, type, courseId, createdBy } = req.body;
+        const id = generateId();
+
+        await pool.execute(`
+            INSERT INTO announcements (id, title, message, type, course_id, created_by)
+            VALUES (?, ?, ?, ?, ?, ?)
+        `, [id, title, message, type || 'general', courseId, createdBy]);
+
+        // Notify students
+        if (courseId) {
+            await notifyStudentsInCourse(courseId, {
+                title,
+                message,
+                type: type || 'general',
+                referenceType: 'announcement',
+                referenceId: id
+            });
+        }
+
+        res.json({ success: true, announcementId: id });
     } catch (error) {
-        console.error('Add announcement error:', error);
-        res.status(500).json({ error: 'Failed to add announcement' });
+        console.error('Create announcement error:', error);
+        res.status(500).json({ error: 'Failed to create announcement' });
     }
 });
 
-app.patch('/api/announcements/:id/read', async (req, res) => {
-    try {
-        await pool.execute('UPDATE announcements SET is_read = TRUE WHERE id = ?', [req.params.id]);
-        res.json({ success: true });
-    } catch (error) {
-        res.status(500).json({ error: 'Failed to update announcement' });
-    }
-});
-
-// ============ SCHEDULE ============
-
-app.get('/api/schedule', async (req, res) => {
-    try {
-        const [rows] = await pool.execute('SELECT * FROM schedule_events ORDER BY start_time ASC');
-        res.json({ success: true, events: rows });
-    } catch (error) {
-        console.error('Get schedule error:', error);
-        res.status(500).json({ error: 'Failed to get schedule' });
-    }
-});
-
-app.post('/api/schedule', async (req, res) => {
-    try {
-        const { title, startTime, endTime, location, instructor, courseId, description, type } = req.body;
-        const id = Date.now().toString();
-        await pool.execute(
-            'INSERT INTO schedule_events (id, title, start_time, end_time, location, instructor, course_id, description, type) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
-            [id, title, startTime, endTime, location, instructor, courseId, description, type || 'lecture']
-        );
-        res.json({ success: true, id });
-    } catch (error) {
-        console.error('Add schedule error:', error);
-        res.status(500).json({ error: 'Failed to add schedule' });
-    }
-});
-
-// ============ COURSES ============
+// ============ COURSES ENDPOINTS ============
 
 app.get('/api/courses', async (req, res) => {
     try {
         const [rows] = await pool.execute('SELECT * FROM courses');
-        // Parse JSON fields
+
         const courses = rows.map(course => ({
             ...course,
-            professors: JSON.parse(course.professors || '[]'),
-            schedule: JSON.parse(course.schedule || '[]'),
-            content: JSON.parse(course.content || '[]'),
-            assignments: JSON.parse(course.assignments || '[]'),
-            exams: JSON.parse(course.exams || '[]'),
+            professors: parseJson(course.professors),
+            schedule: parseJson(course.schedule),
+            content: parseJson(course.content),
+            assignments: parseJson(course.assignments),
+            exams: parseJson(course.exams),
         }));
+
         res.json({ success: true, courses });
     } catch (error) {
         console.error('Get courses error:', error);
@@ -726,31 +847,94 @@ app.get('/api/courses', async (req, res) => {
 app.get('/api/courses/:id', async (req, res) => {
     try {
         const [rows] = await pool.execute('SELECT * FROM courses WHERE id = ?', [req.params.id]);
+
         if (rows.length === 0) {
             return res.status(404).json({ error: 'Course not found' });
         }
+
         const course = rows[0];
-        // Parse JSON fields
         res.json({
             success: true,
             course: {
                 ...course,
-                professors: JSON.parse(course.professors || '[]'),
-                schedule: JSON.parse(course.schedule || '[]'),
-                content: JSON.parse(course.content || '[]'),
-                assignments: JSON.parse(course.assignments || '[]'),
-                exams: JSON.parse(course.exams || '[]'),
+                professors: parseJson(course.professors),
+                schedule: parseJson(course.schedule),
+                content: parseJson(course.content),
+                assignments: parseJson(course.assignments),
+                exams: parseJson(course.exams),
             }
         });
     } catch (error) {
-        console.error('Get course by id error:', error);
+        console.error('Get course error:', error);
         res.status(500).json({ error: 'Failed to get course' });
     }
 });
 
+// Get content for a course
+app.get('/api/courses/:id/content', async (req, res) => {
+    try {
+        const [rows] = await pool.execute(
+            'SELECT * FROM course_content WHERE course_id = ? ORDER BY week_number, order_index',
+            [req.params.id]
+        );
+        res.json({ success: true, content: rows });
+    } catch (error) {
+        console.error('Get course content error:', error);
+        res.status(500).json({ error: 'Failed to get course content' });
+    }
+});
+
+// ============ SCHEDULE ENDPOINTS ============
+
+app.get('/api/schedule', async (req, res) => {
+    try {
+        const { userEmail } = req.query;
+        let query = 'SELECT * FROM schedule_events ORDER BY start_time';
+        let params = [];
+
+        if (userEmail) {
+            query = 'SELECT * FROM schedule_events WHERE user_email = ? ORDER BY start_time';
+            params = [userEmail];
+        }
+
+        const [rows] = await pool.execute(query, params);
+        res.json({ success: true, events: rows });
+    } catch (error) {
+        console.error('Get schedule error:', error);
+        res.status(500).json({ error: 'Failed to get schedule' });
+    }
+});
+
+app.post('/api/schedule', async (req, res) => {
+    try {
+        const { title, startTime, endTime, location, instructor, courseId, description, type, userEmail } = req.body;
+        const id = generateId();
+
+        await pool.execute(`
+            INSERT INTO schedule_events (id, title, start_time, end_time, location, instructor, course_id, description, type, user_email)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `, [id, title, startTime, endTime, location, instructor, courseId, description, type || 'lecture', userEmail]);
+
+        res.json({ success: true, eventId: id });
+    } catch (error) {
+        console.error('Create schedule event error:', error);
+        res.status(500).json({ error: 'Failed to create event' });
+    }
+});
+
+// ============ HEALTH CHECK ============
+
+app.get('/api/health', (req, res) => {
+    res.json({ status: 'ok', timestamp: new Date().toISOString() });
+});
+
 // Start server
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, async () => {
-    console.log(`🚀 Server running on http://localhost:${PORT}`);
-    await initDatabase();
+
+initDatabase().then(() => {
+    app.listen(PORT, () => {
+        console.log(`🚀 Server running on http://localhost:${PORT}`);
+    });
+}).catch(err => {
+    console.error('Failed to start server:', err);
 });

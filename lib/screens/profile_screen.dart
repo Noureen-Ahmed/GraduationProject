@@ -31,6 +31,10 @@ class ProfileScreen extends ConsumerWidget {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       _buildAcademicStats(context, user),
+                      const SizedBox(height: 24),
+                      _buildDetailRow('Department', user.department ?? 'Undeclared'),
+                      const SizedBox(height: 8),
+                      _buildDetailRow('Program', user.major ?? 'Undeclared'),
                       const SizedBox(height: 32),
                       _buildSectionHeader('General Settings'),
                       const SizedBox(height: 12),
@@ -154,8 +158,7 @@ class ProfileScreen extends ConsumerWidget {
       leading: IconButton(
         icon: const Icon(Icons.arrow_back, color: Color(0xFFFDC800)),
         onPressed: () {
-          final isDoctor = StorageService.isDoctorEmail(user.email);
-          context.go('/home/$isDoctor');
+          context.go('/home');
         },
       ),
     );
@@ -418,6 +421,31 @@ class ProfileScreen extends ConsumerWidget {
             },
             child: const Text('Logout', style: TextStyle(color: Color(0xFF002147), fontWeight: FontWeight.bold)),
           ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildDetailRow(String label, String value) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [
+          BoxShadow(
+             color: Colors.black.withOpacity(0.03),
+             blurRadius: 10,
+             offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Text(label, style: const TextStyle(color: Color(0xFF6B7280), fontWeight: FontWeight.w500)),
+          Text(value, style: const TextStyle(color: Color(0xFF002147), fontWeight: FontWeight.bold, fontSize: 16)),
         ],
       ),
     );
