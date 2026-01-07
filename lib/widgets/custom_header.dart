@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import '../providers/announcement_provider.dart';
 import '../providers/app_mode_provider.dart';
+import '../providers/app_session_provider.dart';
 import 'user_avatar.dart';
 
 class CustomHeader extends ConsumerWidget {
