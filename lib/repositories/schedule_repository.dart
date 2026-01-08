@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'package:http/http.dart' as http;
+import '../core/api_config.dart';
 import '../models/schedule_event.dart';
 
 abstract class ScheduleRepository {
@@ -10,7 +11,7 @@ abstract class ScheduleRepository {
 }
 
 class ApiScheduleRepository implements ScheduleRepository {
-  static const String _baseUrl = 'http://localhost:3000/api';
+  static final String _baseUrl = ApiConfig.baseUrl;
 
   @override
   Future<List<ScheduleEvent>> getEvents() async {

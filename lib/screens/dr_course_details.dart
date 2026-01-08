@@ -7,10 +7,14 @@ import '../providers/task_provider.dart';
 import '../models/task.dart';
 import 'package:intl/intl.dart';
 
+class DrCourseDetails extends StatelessWidget {
+  final String courseId;
+  const DrCourseDetails({super.key, required this.courseId});
   @override
   Widget build(BuildContext context) {
     return CreateContentScreen(courseId: courseId);
   }
+}
 
 
 // ---- CONTENT TYPE ENUM ------------------------------------------------------

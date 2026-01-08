@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'package:http/http.dart' as http;
+import '../core/api_config.dart';
 
 /// Task model for API
 class ApiTask {
@@ -46,7 +47,7 @@ class ApiTask {
 
 /// API Task Database Service - Works on all platforms including Web
 class ApiTaskDatabase {
-  static const String _baseUrl = 'http://localhost:3000/api';
+  static final String _baseUrl = ApiConfig.baseUrl;
 
   /// Get all tasks
   static Future<List<ApiTask>> getAllTasks() async {

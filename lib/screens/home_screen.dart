@@ -17,7 +17,8 @@ import '../providers/app_session_provider.dart';
 import '../models/user.dart';
 
 class HomeScreen extends ConsumerStatefulWidget {
-  const HomeScreen({super.key});
+  final bool isDoctor;
+  const HomeScreen({super.key, required this.isDoctor});
   
   @override
   ConsumerState<HomeScreen> createState() => _HomeScreenState();

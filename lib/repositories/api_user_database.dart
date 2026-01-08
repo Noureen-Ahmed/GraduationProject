@@ -1,11 +1,12 @@
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 import '../models/user.dart';
+import '../core/api_config.dart';
 
 /// API Service for communicating with the backend server
 /// which handles MySQL database operations
 class ApiUserDatabase {
-  static const String _baseUrl = 'http://localhost:3000/api';
+  static final String _baseUrl = ApiConfig.baseUrl;
 
   /// Login user with email and password
   static Future<User?> login(String email, String password) async {

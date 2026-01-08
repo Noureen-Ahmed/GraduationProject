@@ -1,4 +1,5 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../core/api_config.dart';
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 import '../models/course.dart';
@@ -43,7 +44,7 @@ final professorCoursesProvider = FutureProvider<List<Course>>((ref) async {
       
       try {
         final response = await http.get(
-          Uri.parse('http://localhost:3000/api/doctor-courses/${Uri.encodeComponent(user.email)}'),
+          Uri.parse('${ApiConfig.baseUrl}/doctor-courses/${Uri.encodeComponent(user.email)}'),
         );
         
         if (response.statusCode == 200) {

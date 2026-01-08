@@ -323,12 +323,13 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
                   const SizedBox(width: 16),
                   
                   // GPA
-                  Expanded(
-                    child: _buildTextField(
-                      controller: _gpaController,
-                      label: 'GPA',
-                      icon: Icons.star_border,
-                      keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                    Expanded(
+                      child: _buildTextField(
+                        controller: _gpaController,
+                        label: 'GPA',
+                        icon: Icons.star_border,
+                        keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                      ),
                     ),
                   ],
                 ),

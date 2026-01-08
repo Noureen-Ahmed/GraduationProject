@@ -1,6 +1,8 @@
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 import '../models/course.dart';
+import '../core/result.dart';
+import '../core/api_config.dart';
 
 abstract class CourseRepository {
   Future<List<Course>> getCourses();
@@ -211,7 +213,7 @@ class MockCourseRepository implements CourseRepository {
 }
 
 class ApiCourseRepository implements CourseRepository {
-  static const String _baseUrl = 'http://localhost:3000/api';
+  static final String _baseUrl = ApiConfig.baseUrl;
 
   @override
   Future<List<Course>> getCourses() async {

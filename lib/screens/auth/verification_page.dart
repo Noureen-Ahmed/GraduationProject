@@ -1,6 +1,7 @@
 import 'dart:math';
 import 'dart:convert';
 import 'package:flutter/material.dart';
+import '../../core/api_config.dart';
 import 'package:go_router/go_router.dart';
 import 'package:http/http.dart' as http;
 import '../../storage_services.dart';
@@ -23,7 +24,7 @@ class _VerificationPageState extends State<VerificationPage> {
   bool _isLoading = false;
   bool _codeSent = false;
 
-  static const String _baseUrl = 'http://localhost:3000/api';
+  static final String _baseUrl = ApiConfig.baseUrl;
 
   @override
   void initState() {

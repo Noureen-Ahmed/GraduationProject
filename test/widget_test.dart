@@ -199,7 +199,7 @@ void main() {
         const ProviderScope(
           child: MaterialApp(
             home: DashboardShell(
-              child: HomeScreen(),
+              child: const HomeScreen(isDoctor: false),
             ),
           ),
         ),
@@ -217,7 +217,7 @@ void main() {
         const ProviderScope(
           child: MaterialApp(
             home: DashboardShell(
-              child: HomeScreen(),
+              child: const HomeScreen(isDoctor: false),
             ),
           ),
         ),
@@ -238,7 +238,7 @@ void main() {
         const ProviderScope(
           child: MaterialApp(
             home: DashboardShell(
-              child: HomeScreen(),
+              child: const HomeScreen(isDoctor: false),
             ),
           ),
         ),

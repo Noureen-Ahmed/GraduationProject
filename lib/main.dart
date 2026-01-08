@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'providers/app_session_provider.dart';
+import 'models/user.dart';
 import 'screens/dashboard_shell.dart';
 import 'screens/home_screen.dart';
 import 'screens/TaskPages/Task.dart';
@@ -234,7 +235,8 @@ class _StudentDashboardAppState extends ConsumerState<StudentDashboardApp> {
           // User is logged in AND has completed onboarding (isOnboardingComplete = true)
           // ALWAYS go to home if on auth/splash/onboarding/verification routes
           if (isAuthRoute || isOnboardingRoute || isVerificationRoute || currentLocation == '/splash') {
-            _router.go('/home/${user.isDoctor}');
+            final isDoctor = user.mode == AppMode.professor;
+            _router.go('/home/$isDoctor');
           }
         },
       );

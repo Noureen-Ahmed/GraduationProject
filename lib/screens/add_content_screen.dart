@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../core/api_config.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'dart:convert';
@@ -29,7 +30,7 @@ class SimpleCourse {
 
 /// API Service for content creation - all API calls in one place
 class ContentApi {
-  static const String baseUrl = 'http://localhost:3000/api';
+  static final String baseUrl = ApiConfig.baseUrl;
 
   /// Get courses assigned to a professor
   static Future<List<SimpleCourse>> getProfessorCourses(String email) async {
