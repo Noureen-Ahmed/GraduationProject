@@ -1,17 +1,16 @@
+import 'dart:math';
 import 'package:flutter/material.dart';
-import 'package:flutter_riverpod/flutter_riverpod.dart';
-import '../../providers/app_session_provider.dart';
-import 'login_screen.dart';
-import '../../core/exceptions.dart';
+import 'package:go_router/go_router.dart';
+import 'email_service.dart';
 
-class ForgotPasswordScreen extends ConsumerStatefulWidget {
+class ForgotPasswordScreen extends StatefulWidget {
   const ForgotPasswordScreen({super.key});
 
   @override
-  ConsumerState<ForgotPasswordScreen> createState() => _ForgotPasswordScreenState();
+  State<ForgotPasswordScreen> createState() => _ForgotPasswordScreenState();
 }
 
-class _ForgotPasswordScreenState extends ConsumerState<ForgotPasswordScreen> {
+class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
   final _formKey = GlobalKey<FormState>();
   final _emailController = TextEditingController();
   bool _isLoading = false;
@@ -33,22 +32,25 @@ class _ForgotPasswordScreenState extends ConsumerState<ForgotPasswordScreen> {
     });
 
     try {
-      final result = await ref.read(appSessionControllerProvider.notifier).forgotPassword(
-        _emailController.text.trim(),
+      final code = (Random().nextInt(9000) + 1000).toString();
+      
+      final success = await EmailService.sendVerificationCode(
+        toEmail: _emailController.text.trim(),
+        code: code,
       );
 
-      result.fold(
-        (_) {
-          setState(() {
-            _emailSent = true;
+      if (mounted) {
+        if (success) {
+          context.go('/verification', extra: {
+            'email': _emailController.text.trim(),
+            'isPasswordReset': 'true',
           });
-        },
-        (error) {
+        } else {
           setState(() {
-            _errorMessage = _getErrorMessage(error);
+            _errorMessage = 'Failed to send verification code. Please try again.';
           });
-        },
-      );
+        }
+      }
     } finally {
       if (mounted) {
         setState(() {
@@ -58,16 +60,6 @@ class _ForgotPasswordScreenState extends ConsumerState<ForgotPasswordScreen> {
     }
   }
 
-  String _getErrorMessage(AppException error) {
-    switch (error.code) {
-      case 'EMAIL_NOT_FOUND':
-        return 'Email not found in our system';
-      case 'NETWORK_ERROR':
-        return 'Network error. Please check your connection';
-      default:
-        return error.message;
-    }
-  }
 
   @override
   Widget build(BuildContext context) {
@@ -303,12 +295,7 @@ class _ForgotPasswordScreenState extends ConsumerState<ForgotPasswordScreen> {
                                   width: double.infinity,
                                   child: ElevatedButton(
                                     onPressed: () {
-                                      Navigator.of(context).pushAndRemoveUntil(
-                                        MaterialPageRoute(
-                                          builder: (context) =>  const LoginPage(),
-                                        ),
-                                        (route) => false,
-                                      );
+                                      context.go('/login');
                                     },
                                     style: ElevatedButton.styleFrom(
                                       backgroundColor: const Color(0xFF2563eb),

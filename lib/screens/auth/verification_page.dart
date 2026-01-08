@@ -1,23 +1,29 @@
 import 'dart:math';
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import 'package:http/http.dart' as http;
 import '../../storage_services.dart';
 import 'email_service.dart';
 
 class VerificationPage extends StatefulWidget {
   final String email;
   final String? password;
-  const VerificationPage({super.key, required this.email, this.password});
+  final bool isPasswordReset;
+  const VerificationPage({super.key, required this.email, this.password, this.isPasswordReset = false});
 
   @override
   State<VerificationPage> createState() => _VerificationPageState();
 }
 
 class _VerificationPageState extends State<VerificationPage> {
-  late String _correctCode;
   final List<TextEditingController> _controllers =
       List.generate(4, (_) => TextEditingController());
   final List<FocusNode> _focusNodes = List.generate(4, (_) => FocusNode());
+  bool _isLoading = false;
+  bool _codeSent = false;
+
+  static const String _baseUrl = 'http://localhost:3000/api';
 
   @override
   void initState() {
@@ -37,24 +43,59 @@ class _VerificationPageState extends State<VerificationPage> {
   }
 
   Future<void> _sendVerificationCode() async {
+    setState(() => _isLoading = true);
+    
     // Generate 4-digit code
-    _correctCode = (Random().nextInt(9000) + 1000).toString();
+    final code = (Random().nextInt(9000) + 1000).toString();
+    final type = widget.isPasswordReset ? 'password_reset' : 'registration';
 
-    // Send code via email
-    final success = await EmailService.sendVerificationCode(
-      toEmail: widget.email,
-      code: _correctCode,
-    );
-
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(success
-              ? 'Verification code sent to ${widget.email}'
-              : 'Failed to send code. Please try again.'),
-          backgroundColor: success ? Colors.green : Colors.red,
-        ),
+    // Store code in database first
+    try {
+      final storeResponse = await http.post(
+        Uri.parse('$_baseUrl/auth/store-code'),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({
+          'email': widget.email,
+          'code': code,
+          'type': type,
+        }),
       );
+
+      if (storeResponse.statusCode != 200) {
+        throw Exception('Failed to store code');
+      }
+
+      // Send code via email
+      final success = await EmailService.sendVerificationCode(
+        toEmail: widget.email,
+        code: code,
+      );
+
+      setState(() {
+        _isLoading = false;
+        _codeSent = success;
+      });
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(success
+                ? 'Verification code sent to ${widget.email}'
+                : 'Failed to send code. Please try again.'),
+            backgroundColor: success ? Colors.green : Colors.red,
+          ),
+        );
+      }
+    } catch (e) {
+      setState(() => _isLoading = false);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
     }
   }
 
@@ -68,37 +109,70 @@ class _VerificationPageState extends State<VerificationPage> {
       return;
     }
 
-    if (enteredCode == _correctCode) {
-      await StorageService.setVerified(true);
+    setState(() => _isLoading = true);
 
-      print('[v0] Verification - Email verified: ${widget.email}');
-      await StorageService.debugPrintAll();
+    try {
+      final type = widget.isPasswordReset ? 'password_reset' : 'registration';
+      
+      final response = await http.post(
+        Uri.parse('$_baseUrl/auth/verify-code'),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({
+          'email': widget.email,
+          'code': enteredCode,
+          'type': type,
+        }),
+      );
 
+      setState(() => _isLoading = false);
+
+      if (response.statusCode == 200) {
+        await StorageService.setVerified(true);
+
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Email verified successfully!'),
+              backgroundColor: Colors.green,
+            ),
+          );
+          
+          // Navigate based on flow type
+          if (widget.isPasswordReset) {
+            context.go('/reset-password', extra: {'email': widget.email});
+          } else {
+            context.go('/course-selection', extra: {
+              'email': widget.email,
+              'password': widget.password ?? '',
+            });
+          }
+        }
+      } else {
+        final data = jsonDecode(response.body);
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(data['error'] ?? 'Incorrect code. Please try again.'),
+              backgroundColor: Colors.red,
+            ),
+          );
+        }
+        // Clear all fields
+        for (var controller in _controllers) {
+          controller.clear();
+        }
+        _focusNodes[0].requestFocus();
+      }
+    } catch (e) {
+      setState(() => _isLoading = false);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Email verified successfully!'),
-            backgroundColor: Colors.green,
+          SnackBar(
+            content: Text('Verification failed: $e'),
+            backgroundColor: Colors.red,
           ),
         );
-        // Go to course selection
-        context.go('/course-selection', extra: {
-          'email': widget.email,
-          'password': widget.password ?? '',
-        });
       }
-    } else {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Incorrect code. Please try again.'),
-          backgroundColor: Colors.red,
-        ),
-      );
-      // Clear all fields
-      for (var controller in _controllers) {
-        controller.clear();
-      }
-      _focusNodes[0].requestFocus();
     }
   }
 
@@ -163,7 +237,11 @@ class _VerificationPageState extends State<VerificationPage> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const SizedBox(height: 48),
+                    IconButton(
+                      icon: const Icon(Icons.arrow_back, color: Colors.white),
+                      onPressed: () => context.pop(),
+                    ),
+                    const SizedBox(height: 24),
                     const Text(
                       'Verify Your Email',
                       style: TextStyle(
@@ -188,49 +266,51 @@ class _VerificationPageState extends State<VerificationPage> {
                     borderRadius:
                         BorderRadius.vertical(top: Radius.circular(32)),
                   ),
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                        children:
-                            List.generate(4, (index) => _buildCodeField(index)),
-                      ),
-                      const SizedBox(height: 32),
-                      SizedBox(
-                        width: double.infinity,
-                        child: ElevatedButton(
-                          onPressed: _verifyCode,
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: const Color(0xFF2563eb),
-                            padding: const EdgeInsets.symmetric(vertical: 16),
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(12),
+                  child: _isLoading
+                      ? const Center(child: CircularProgressIndicator())
+                      : Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                              children:
+                                  List.generate(4, (index) => _buildCodeField(index)),
                             ),
-                          ),
-                          child: const Text(
-                            'Verify Email',
-                            style: TextStyle(
-                              fontSize: 16,
-                              fontWeight: FontWeight.w600,
-                              color: Colors.white,
+                            const SizedBox(height: 32),
+                            SizedBox(
+                              width: double.infinity,
+                              child: ElevatedButton(
+                                onPressed: _verifyCode,
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: const Color(0xFF2563eb),
+                                  padding: const EdgeInsets.symmetric(vertical: 16),
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(12),
+                                  ),
+                                ),
+                                child: const Text(
+                                  'Verify Email',
+                                  style: TextStyle(
+                                    fontSize: 16,
+                                    fontWeight: FontWeight.w600,
+                                    color: Colors.white,
+                                  ),
+                                ),
+                              ),
                             ),
-                          ),
+                            const SizedBox(height: 16),
+                            TextButton(
+                              onPressed: _isLoading ? null : _sendVerificationCode,
+                              child: const Text(
+                                'Resend Code',
+                                style: TextStyle(
+                                  color: Color(0xFF2563eb),
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ),
+                          ],
                         ),
-                      ),
-                      const SizedBox(height: 16),
-                      TextButton(
-                        onPressed: _sendVerificationCode,
-                        child: const Text(
-                          'Resend Code',
-                          style: TextStyle(
-                            color: Color(0xFF2563eb),
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
                 ),
               ),
             ],

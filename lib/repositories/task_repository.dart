@@ -1,4 +1,5 @@
 import '../models/task.dart';
+import 'api_task_database.dart';
 
 abstract class TaskRepository {
   Future<List<Task>> getTasks();
@@ -12,84 +13,65 @@ abstract class TaskRepository {
   Stream<List<Task>> watchTasks();
 }
 
+/// Task Repository that uses API for cross-platform compatibility
 class MockTaskRepository implements TaskRepository {
-  final List<Task> _tasks = [
-    Task(
-      id: '1',
-      title: 'Complete Data Structures Assignment',
-      subject: 'Computer Science',
-      dueDate: DateTime.now().add(const Duration(days: 3)),
-      status: TaskStatus.pending,
-      priority: TaskPriority.high,
-      description: 'Complete the programming assignment on binary trees and graphs',
-      createdAt: DateTime.now().subtract(const Duration(days: 5)),
-    ),
-    Task(
-      id: '2',
-      title: 'Read Chapter 5 - Algorithms',
-      subject: 'Computer Science',
-      dueDate: DateTime.now().add(const Duration(days: 1)),
-      status: TaskStatus.pending,
-      priority: TaskPriority.medium,
-      description: 'Read and understand sorting algorithms',
-      createdAt: DateTime.now().subtract(const Duration(days: 2)),
-    ),
-    Task(
-      id: '3',
-      title: 'Physics Lab Report',
-      subject: 'Physics',
-      dueDate: DateTime.now().add(const Duration(days: 2)),
-      status: TaskStatus.completed,
-      priority: TaskPriority.medium,
-      description: 'Submit lab report on wave mechanics',
-      createdAt: DateTime.now().subtract(const Duration(days: 7)),
-      updatedAt: DateTime.now(),
-    ),
-    Task(
-      id: '4',
-      title: 'Math Problem Set 7',
-      subject: 'Mathematics',
-      dueDate: DateTime.now().add(const Duration(days: 4)),
-      status: TaskStatus.pending,
-      priority: TaskPriority.low,
-      description: 'Complete calculus problem set',
-      createdAt: DateTime.now().subtract(const Duration(days: 3)),
-    ),
-    Task(
-      id: '5',
-      title: 'History Essay Draft',
-      subject: 'History',
-      dueDate: DateTime.now().add(const Duration(days: 6)),
-      status: TaskStatus.pending,
-      priority: TaskPriority.medium,
-      description: 'Write first draft of history essay',
-      createdAt: DateTime.now().subtract(const Duration(days: 1)),
-    ),
-  ];
+  
+  /// Convert ApiTask to models/Task
+  Task _convertToModelTask(ApiTask apiTask) {
+    TaskPriority taskPriority;
+    switch (apiTask.priority.toLowerCase()) {
+      case 'high':
+        taskPriority = TaskPriority.high;
+        break;
+      case 'medium':
+        taskPriority = TaskPriority.medium;
+        break;
+      default:
+        taskPriority = TaskPriority.low;
+    }
+    
+    return Task(
+      id: apiTask.id,
+      title: apiTask.title,
+      subject: apiTask.course,
+      dueDate: DateTime.now().add(const Duration(days: 7)),
+      status: apiTask.completed ? TaskStatus.completed : TaskStatus.pending,
+      priority: taskPriority,
+      description: apiTask.description ?? '',
+      createdAt: DateTime.now(),
+    );
+  }
 
   @override
   Future<List<Task>> getTasks() async {
-    await Future.delayed(const Duration(milliseconds: 500));
-    return List.from(_tasks);
+    final apiTasks = await ApiTaskDatabase.getAllTasks();
+    return apiTasks.map((t) => _convertToModelTask(t)).toList();
   }
 
   @override
   Future<List<Task>> getPendingTasks() async {
-    await Future.delayed(const Duration(milliseconds: 300));
-    return _tasks.where((task) => task.status == TaskStatus.pending).toList();
+    final apiTasks = await ApiTaskDatabase.getAllTasks();
+    return apiTasks
+        .where((t) => !t.completed)
+        .map((t) => _convertToModelTask(t))
+        .toList();
   }
 
   @override
   Future<List<Task>> getCompletedTasks() async {
-    await Future.delayed(const Duration(milliseconds: 300));
-    return _tasks.where((task) => task.status == TaskStatus.completed).toList();
+    final apiTasks = await ApiTaskDatabase.getAllTasks();
+    return apiTasks
+        .where((t) => t.completed)
+        .map((t) => _convertToModelTask(t))
+        .toList();
   }
 
   @override
   Future<Task?> getTaskById(String id) async {
-    await Future.delayed(const Duration(milliseconds: 200));
+    final apiTasks = await ApiTaskDatabase.getAllTasks();
     try {
-      return _tasks.firstWhere((task) => task.id == id);
+      final task = apiTasks.firstWhere((t) => t.id == id);
+      return _convertToModelTask(task);
     } catch (e) {
       return null;
     }
@@ -97,42 +79,37 @@ class MockTaskRepository implements TaskRepository {
 
   @override
   Future<void> addTask(Task task) async {
-    await Future.delayed(const Duration(milliseconds: 500));
-    _tasks.add(task);
+    await ApiTaskDatabase.addTask(
+      title: task.title,
+      course: task.subject,
+      priority: task.priority.name,
+      description: task.description,
+    );
   }
 
   @override
   Future<void> updateTask(Task task) async {
-    await Future.delayed(const Duration(milliseconds: 500));
-    final index = _tasks.indexWhere((t) => t.id == task.id);
-    if (index != -1) {
-      _tasks[index] = task;
-    }
+    await ApiTaskDatabase.updateTask(task.id, {
+      'title': task.title,
+      'course': task.subject,
+      'priority': task.priority.name,
+      'completed': task.status == TaskStatus.completed,
+      'description': task.description,
+    });
   }
 
   @override
   Future<void> deleteTask(String id) async {
-    await Future.delayed(const Duration(milliseconds: 500));
-    _tasks.removeWhere((task) => task.id == id);
+    await ApiTaskDatabase.deleteTask(id);
   }
 
   @override
   Future<void> toggleTaskStatus(String id) async {
-    await Future.delayed(const Duration(milliseconds: 300));
-    final index = _tasks.indexWhere((task) => task.id == id);
-    if (index != -1) {
-      final task = _tasks[index];
-      _tasks[index] = task.copyWith(
-        status: task.status == TaskStatus.pending 
-            ? TaskStatus.completed 
-            : TaskStatus.pending,
-        updatedAt: DateTime.now(),
-      );
-    }
+    await ApiTaskDatabase.toggleComplete(id);
   }
 
   @override
-  Stream<List<Task>> watchTasks() {
-    return Stream.value(List.from(_tasks));
+  Stream<List<Task>> watchTasks() async* {
+    yield await getTasks();
   }
 }

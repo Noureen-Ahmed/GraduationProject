@@ -11,12 +11,14 @@ import 'screens/profile_screen.dart';
 import 'screens/course_detail_screen.dart';
 import 'screens/dr_course_details.dart';
 import 'screens/add_content_screen.dart';
+import 'screens/courses_list_screen.dart';
 import 'screens/notifications_screen.dart';
 import 'screens/auth/login_screen.dart';
 import 'screens/auth/register_screen.dart';
 import 'screens/auth/forgot_password_screen.dart';
 import 'screens/auth/course_selection_screen.dart';
 import 'screens/auth/verification_page.dart';
+import 'screens/auth/reset_password_screen.dart';
 import 'screens/splash_screen.dart';
 import 'screens/welcome_screen.dart';
 import 'storage_services.dart';
@@ -81,12 +83,20 @@ class _StudentDashboardAppState extends ConsumerState<StudentDashboardApp> {
             return VerificationPage(
               email: extra?['email'] ?? '',
               password: extra?['password'],
+              isPasswordReset: extra?['isPasswordReset'] == 'true',
             );
           },
         ),
         GoRoute(
           path: '/forgot-password',
           builder: (context, state) => const ForgotPasswordScreen(),
+        ),
+        GoRoute(
+          path: '/reset-password',
+          builder: (context, state) {
+            final extra = state.extra as Map<String, String>?;
+            return ResetPasswordPage(email: extra?['email'] ?? '');
+          },
         ),
         GoRoute(
           path: '/course-selection',
@@ -130,8 +140,7 @@ class _StudentDashboardAppState extends ConsumerState<StudentDashboardApp> {
           routes: [
             GoRoute(
               path: '/home/:isDoctor',
-              builder: (context, state) { 
-                // final isDoctor = false;
+              builder: (context, state) {
                 final isDoctor = state.pathParameters['isDoctor'] == 'true';
                 return HomeScreen(isDoctor: isDoctor);
               },
@@ -178,6 +187,10 @@ class _StudentDashboardAppState extends ConsumerState<StudentDashboardApp> {
               path: '/add-content',
               builder: (context, state) => const AddContentScreen(),
             ),
+            GoRoute(
+              path: '/my-courses',
+              builder: (context, state) => const CoursesListScreen(),
+            ),
           ],
         ),
       ],
@@ -190,38 +203,52 @@ class _StudentDashboardAppState extends ConsumerState<StudentDashboardApp> {
 
     // Redirection Logic
     void handleRedirection() {
+      if (!mounted) return;
+      
       final currentLocation = _router.routerDelegate.currentConfiguration.uri.path;
-      final isAuthRoute = currentLocation.startsWith('/login') ||
-          currentLocation.startsWith('/register') ||
-          currentLocation.startsWith('/forgot-password') ||
-          currentLocation.startsWith('/verification') ||
-          currentLocation.startsWith('/splash') ||
-          currentLocation.startsWith('/welcome') ||
+      final isAuthRoute = currentLocation == '/login' ||
+          currentLocation == '/register' ||
+          currentLocation == '/forgot-password' ||
+          currentLocation == '/splash' ||
+          currentLocation == '/welcome' ||
           currentLocation.startsWith('/guest/'); 
+      final isVerificationRoute = currentLocation == '/verification';
       final isOnboardingRoute = currentLocation == '/course-selection';
 
-  authState.when(
-    unauthenticated: () {
-      if (!isAuthRoute && !isOnboardingRoute) _router.go('/login');
-    },
-    onboardingRequired: (user) {
-      if (!isOnboardingRoute) _router.go('/course-selection');
-    },
-    authenticated: (user) {
-      if (isAuthRoute || isOnboardingRoute) {
-        final isDoctor = StorageService.isDoctorEmail(user.email);
-        _router.go('/home/$isDoctor');
-      }
-    },
-  );
-
+      authState.when(
+        unauthenticated: () {
+          // Not logged in - redirect to login unless already on an auth page
+          if (!isAuthRoute && !isOnboardingRoute && !isVerificationRoute) {
+             _router.go('/login');
+          }
+        },
+        onboardingRequired: (user) {
+          // User is logged in but hasn't completed onboarding
+          // Allow user to stay on verification OR course-selection page
+          // Only redirect if they're on neither of these pages
+          if (!isOnboardingRoute && !isVerificationRoute) {
+            _router.go('/course-selection', extra: {'email': user.email});
+          }
+        },
+        authenticated: (user) {
+          // User is logged in AND has completed onboarding (isOnboardingComplete = true)
+          // ALWAYS go to home if on auth/splash/onboarding/verification routes
+          if (isAuthRoute || isOnboardingRoute || isVerificationRoute || currentLocation == '/splash') {
+            _router.go('/home/${user.isDoctor}');
+          }
+        },
+      );
     }
 
-    // Checking on build and listener
-    WidgetsBinding.instance.addPostFrameCallback((_) => handleRedirection());
+    // Only listen for state changes, don't run on every build
     ref.listen<AuthState>(authStateProvider, (previous, next) {
-      if (previous != next) handleRedirection();
+      if (previous != next) {
+        WidgetsBinding.instance.addPostFrameCallback((_) => handleRedirection());
+      }
     });
+    
+    // Initial check on first build
+    WidgetsBinding.instance.addPostFrameCallback((_) => handleRedirection());
 
     return MaterialApp.router(
       title: 'Student Dashboard',

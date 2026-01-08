@@ -12,10 +12,13 @@ import '../widgets/quick_action.dart';
 import '../widgets/schedule_event_card.dart';
 import '../providers/schedule_provider.dart';
 import 'package:intl/intl.dart';
+import '../storage_services.dart';
+import '../providers/app_session_provider.dart';
+import '../models/user.dart';
 
 class HomeScreen extends ConsumerStatefulWidget {
-  const HomeScreen({super.key, required this.isDoctor});
-  final bool isDoctor;
+  const HomeScreen({super.key});
+  
   @override
   ConsumerState<HomeScreen> createState() => _HomeScreenState();
 }
@@ -33,8 +36,10 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   }
 
   Future<void> _refreshData() async {
+    // Invalidate current user provider to force re-read
+    ref.invalidate(currentUserProvider);
+    
     await Future.wait([
-      ref.refresh(currentUserProvider.future),
       ref.refresh(announcementsProvider.future),
       ref.refresh(pendingTasksProvider.future),
       ref.refresh(enrolledCoursesProvider.future),
@@ -46,6 +51,12 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   Widget build(BuildContext context) {
     final pendingTasksAsync = ref.watch(pendingTasksProvider);
     final enrolledCoursesAsync = ref.watch(enrolledCoursesProvider);
+    final userAsync = ref.watch(currentUserProvider);
+    
+    final bool isDoctor = userAsync.maybeWhen(
+      data: (user) => user != null && user.mode == AppMode.professor,
+      orElse: () => false,
+    );
 
     return LayoutBuilder(
       builder: (context, constraints) {
@@ -186,7 +197,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                             crossAxisSpacing: 12,
                             childAspectRatio: 1.1, // Taller cards for better presence
                             children: [
-                              if (!widget.isDoctor) 
+                              if (!isDoctor) 
                               QuickAction(
                                 title: 'Assignments',
                                 icon: const Icon(

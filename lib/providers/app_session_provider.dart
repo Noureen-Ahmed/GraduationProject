@@ -26,13 +26,28 @@ final authStateProvider = Provider<AuthState>((ref) {
     authenticated: (user) => user,
     orElse: () => null,
   );
+  
   if (user == null) {
     return const AuthState.unauthenticated();
-  } else if (!user.isOnboardingComplete) {
-    return AuthState.onboardingRequired(user);
-  } else {
+  } 
+  
+  // If user has completed onboarding -> authenticated
+  // If user has NOT completed onboarding -> onboardingRequired
+  if (user.isOnboardingComplete) {
     return AuthState.authenticated(user);
+  } else {
+    return AuthState.onboardingRequired(user);
   }
+});
+
+final currentUserProvider = Provider<AsyncValue<User?>>((ref) {
+  final state = ref.watch(appSessionControllerProvider);
+  return state.maybeWhen(
+    authenticated: (user) => AsyncValue.data(user),
+    loading: () => const AsyncValue.loading(),
+    error: (e) => AsyncValue.error(e, StackTrace.current),
+    orElse: () => const AsyncValue.data(null),
+  );
 });
 
 class AppSessionController extends StateNotifier<AppSessionState> {
@@ -97,6 +112,8 @@ class AppSessionController extends StateNotifier<AppSessionState> {
       
       return result.fold(
         (user) {
+          // Set user as authenticated so course-selection can access currentUserProvider
+          // The user will still need to complete onboarding (isOnboardingComplete = false)
           state = AppSessionState.authenticated(user);
           return Result.success(user);
         },

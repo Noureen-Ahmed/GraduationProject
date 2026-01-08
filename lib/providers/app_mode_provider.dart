@@ -3,9 +3,7 @@ import '../models/user.dart';
 import '../repositories/auth_repository.dart';
 import 'app_session_provider.dart';
 
-final currentUserProvider = StreamProvider<User?>((ref) {
-  return ref.watch(authRepositoryProvider).watchUser();
-});
+
 
 final appModeControllerProvider = StateNotifierProvider<AppModeController, AppMode>((ref) {
   final repository = ref.watch(authRepositoryProvider);

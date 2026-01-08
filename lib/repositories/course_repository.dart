@@ -1,13 +1,14 @@
+import 'dart:convert';
+import 'package:http/http.dart' as http;
 import '../models/course.dart';
 
 abstract class CourseRepository {
   Future<List<Course>> getCourses();
   Future<Course?> getCourseById(String id);
-  Future<List<Course>> getEnrolledCourses();
-  Future<List<Course>> getWishlistCourses();
+  // These are user-centric, ideally handled by user provider + data manipulation, 
+  // keeping them here for compatibility but implementation might vary.
   Future<void> enrollInCourse(String courseId);
   Future<void> removeFromWishlist(String courseId);
-  Stream<List<Course>> watchCourses();
 }
 
 class MockCourseRepository implements CourseRepository {
@@ -194,52 +195,83 @@ class MockCourseRepository implements CourseRepository {
 
   @override
   Future<List<Course>> getCourses() async {
-    await Future.delayed(const Duration(milliseconds: 500));
-    return List.from(_courses);
+    return _courses;
   }
 
   @override
   Future<Course?> getCourseById(String id) async {
-    await Future.delayed(const Duration(milliseconds: 200));
+    return _courses.firstWhere((c) => c.id == id, orElse: () => _courses.first);
+  }
+
+  @override
+  Future<void> enrollInCourse(String courseId) async {}
+
+  @override
+  Future<void> removeFromWishlist(String courseId) async {}
+}
+
+class ApiCourseRepository implements CourseRepository {
+  static const String _baseUrl = 'http://localhost:3000/api';
+
+  @override
+  Future<List<Course>> getCourses() async {
     try {
-      return _courses.firstWhere((course) => course.id == id);
+      final response = await http.get(Uri.parse('$_baseUrl/courses'));
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        final List<dynamic> list = data['courses'];
+        return list.map((json) {
+           // Ensure enum names match
+           return Course.fromJson(json);
+        }).toList();
+      }
+      return [];
     } catch (e) {
+      print('Error getting courses: $e');
+      return [];
+    }
+  }
+
+  @override
+  Future<Course?> getCourseById(String id) async {
+    try {
+      final response = await http.get(Uri.parse('$_baseUrl/courses/$id'));
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        return Course.fromJson(data['course']);
+      }
+      return null;
+    } catch (e) {
+      print('Error getting course by id: $e');
       return null;
     }
   }
 
   @override
-  Future<List<Course>> getEnrolledCourses() async {
-    await Future.delayed(const Duration(milliseconds: 300));
-    return _courses.where((course) => course.enrollmentStatus == EnrollmentStatus.enrolled).toList();
-  }
-
-  @override
-  Future<List<Course>> getWishlistCourses() async {
-    await Future.delayed(const Duration(milliseconds: 300));
-    return _courses.where((course) => course.enrollmentStatus == EnrollmentStatus.wishlist).toList();
-  }
-
-  @override
   Future<void> enrollInCourse(String courseId) async {
-    await Future.delayed(const Duration(milliseconds: 500));
-    final index = _courses.indexWhere((course) => course.id == courseId);
-    if (index != -1) {
-      _courses[index] = _courses[index].copyWith(enrollmentStatus: EnrollmentStatus.enrolled);
-    }
+    // This requires user context or an endpoint that knows the current user via token/session.
+    // Since we don't have global auth header injection setup in a simple way here yet,
+    // we might need to handle this in the provider or assume a specific endpoint.
+    // For now, this is a placeholder or could throw.
+    // But to avoid breaking the app, we'll do nothing.
+    print('ApiCourseRepository.enrollInCourse: Not implemented at repo level, use UserProvider');
   }
 
   @override
   Future<void> removeFromWishlist(String courseId) async {
-    await Future.delayed(const Duration(milliseconds: 500));
-    final index = _courses.indexWhere((course) => course.id == courseId);
-    if (index != -1) {
-      _courses[index] = _courses[index].copyWith(enrollmentStatus: EnrollmentStatus.available);
-    }
+    print('ApiCourseRepository.removeFromWishlist: Not implemented at repo level');
+  }
+  
+  Future<List<Course>> getEnrolledCourses() async {
+      return []; // Logic moved to provider
   }
 
-  @override
+  Future<List<Course>> getWishlistCourses() async {
+      return []; // Logic moved to provider
+  }
+    
   Stream<List<Course>> watchCourses() {
-    return Stream.value(List.from(_courses));
+    // Fallback for stream providers if we don't switch to future provider immediately
+    return Stream.fromFuture(getCourses()); 
   }
 }
