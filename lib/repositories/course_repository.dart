@@ -47,6 +47,7 @@ class MockCourseRepository implements CourseRepository {
           gradingBreakdown: 'Theory: 60%, Practical: 40%',
         ),
       ],
+      enrollmentStatus: EnrollmentStatus.enrolled,
     ),
     Course(
       id: '2',
@@ -82,6 +83,7 @@ class MockCourseRepository implements CourseRepository {
           gradingBreakdown: 'Problem Solving: 70%, Theory: 30%',
         ),
       ],
+      enrollmentStatus: EnrollmentStatus.enrolled,
     ),
     Course(
       id: '3',
@@ -118,6 +120,7 @@ class MockCourseRepository implements CourseRepository {
           gradingBreakdown: 'Theory: 50%, Practical: 50%',
         ),
       ],
+      enrollmentStatus: EnrollmentStatus.enrolled,
     ),
     Course(
       id: '4',
@@ -153,6 +156,39 @@ class MockCourseRepository implements CourseRepository {
           gradingBreakdown: 'Theory: 40%, Coding: 60%',
         ),
       ],
+      enrollmentStatus: EnrollmentStatus.enrolled,
+    ),
+    Course(
+      id: '5',
+      code: 'SOFT302',
+      name: 'Software Engineering',
+      category: CourseCategory.comp,
+      creditHours: 3,
+      professors: ['Dr. Ahmed'],
+      description: 'Principles of software development, modeling, and project management.',
+      schedule: [
+        CourseSchedule(day: 'Sunday', time: '12:00 PM - 1:30 PM', location: 'Hall A'),
+      ],
+      content: [],
+      assignments: [],
+      exams: [],
+      enrollmentStatus: EnrollmentStatus.enrolled,
+    ),
+    Course(
+      id: '6',
+      code: 'AI101',
+      name: 'Artificial Intelligence',
+      category: CourseCategory.comp,
+      creditHours: 3,
+      professors: ['Dr. Noureen'],
+      description: 'Introduction to AI, search algorithms, and machine learning basics.',
+      schedule: [
+        CourseSchedule(day: 'Wednesday', time: '1:00 PM - 2:30 PM', location: 'Lab 2'),
+      ],
+      content: [],
+      assignments: [],
+      exams: [],
+      enrollmentStatus: EnrollmentStatus.enrolled,
     ),
   ];
 

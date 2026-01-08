@@ -26,6 +26,7 @@ import 'screens/student_guide/explain_screen.dart';
 import 'screens/student_guide/explain_program.dart';
 import 'screens/guest/guest_dashboard_shell.dart';
 import 'screens/guest/guest_home_screen.dart';
+import 'screens/courses_screen.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -130,8 +131,8 @@ class _StudentDashboardAppState extends ConsumerState<StudentDashboardApp> {
             GoRoute(
               path: '/home/:isDoctor',
               builder: (context, state) { 
-                final isDoctor = false;
-                // final isDoctor = state.pathParameters['isDoctor'] == 'true';
+                // final isDoctor = false;
+                final isDoctor = state.pathParameters['isDoctor'] == 'true';
                 return HomeScreen(isDoctor: isDoctor);
               },
             ),
@@ -159,9 +160,14 @@ class _StudentDashboardAppState extends ConsumerState<StudentDashboardApp> {
               },
             ),
             GoRoute(
+              path: '/courses',
+              builder: (context, state) => const CoursesScreen(),
+            ),
+            GoRoute(
               path: '/dr-course/:courseId',
               builder: (context, state) {
-                return const DrCourseDetails();
+                final courseId = state.pathParameters['courseId']!;
+                return DrCourseDetails(courseId: courseId);
               },
             ),
             GoRoute(

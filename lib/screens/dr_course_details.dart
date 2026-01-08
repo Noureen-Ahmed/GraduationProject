@@ -1,16 +1,19 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
+import 'package:table_calendar/table_calendar.dart';
+import 'package:file_picker/file_picker.dart';
+import '../providers/task_provider.dart';
+import '../models/task.dart';
+import 'package:intl/intl.dart';
 
 class DrCourseDetails extends StatelessWidget {
-  const DrCourseDetails({super.key});
+  final String courseId;
+  const DrCourseDetails({super.key, required this.courseId});
 
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(
-      title: 'College Guide',
-      theme: ThemeData(primarySwatch: Colors.blue, fontFamily: 'Roboto'),
-      home: const CreateContentScreen(),
-      debugShowCheckedModeBanner: false,
-    );
+    return CreateContentScreen(courseId: courseId);
   }
 }
 
@@ -20,42 +23,48 @@ enum ContentType {
   assignment,
   exam,
   lectureMaterial,
-  readingMaterial,
   announcement,
-  project,
+}
+
+enum ExamType {
+  online,
+  offline,
 }
 
 // ---- SCREEN -----------------------------------------------------------------
 
-class CreateContentScreen extends StatefulWidget {
-  const CreateContentScreen({Key? key}) : super(key: key);
+class CreateContentScreen extends ConsumerStatefulWidget {
+  final String courseId;
+  const CreateContentScreen({Key? key, required this.courseId}) : super(key: key);
 
   @override
-  State<CreateContentScreen> createState() => _CreateContentScreenState();
+  ConsumerState<CreateContentScreen> createState() => _CreateContentScreenState();
 }
 
-class _CreateContentScreenState extends State<CreateContentScreen> {
+class _CreateContentScreenState extends ConsumerState<CreateContentScreen> {
   // content types + icons (for the chips)
   final Map<ContentType, String> _contentTypeLabels = {
     ContentType.assignment: 'Assignment',
     ContentType.exam: 'Exam',
     ContentType.lectureMaterial: 'Lecture Material',
-    ContentType.readingMaterial: 'Reading Material',
     ContentType.announcement: 'Announcement',
-    ContentType.project: 'Project',
   };
 
   final Map<ContentType, IconData> _contentTypeIcons = {
     ContentType.assignment: Icons.assignment_outlined,
     ContentType.exam: Icons.fact_check_outlined,
     ContentType.lectureMaterial: Icons.menu_book_outlined,
-    ContentType.readingMaterial: Icons.chrome_reader_mode_outlined,
     ContentType.announcement: Icons.campaign_outlined,
-    ContentType.project: Icons.folder_open_outlined,
   };
 
   ContentType _selectedType = ContentType.assignment;
-  String _selectedCourse = 'MATH101 - Calculus I';
+  ExamType _selectedExamType = ExamType.online;
+
+  // Mock busy dates for testing
+  final Map<DateTime, String> _busyDates = {
+    DateTime(2026, 1, 13): '4 students have an exam in this day',
+    DateTime(2026, 1, 10): '50 students have an assignment in this day',
+  };
 
   final TextEditingController _titleController = TextEditingController();
   final TextEditingController _descriptionController = TextEditingController();
@@ -63,11 +72,19 @@ class _CreateContentScreenState extends State<CreateContentScreen> {
 
   DateTime? _dueDate;
   TimeOfDay? _dueTime;
+  String? _selectedFileName;
 
   // When true we show “Deadline & Grading” section .
   bool get _showDeadlineSection =>
       _selectedType == ContentType.assignment ||
       _selectedType == ContentType.exam;
+
+  bool get _isExam => _selectedType == ContentType.exam;
+  bool get _isOnlineExam => _isExam && _selectedExamType == ExamType.online;
+  bool get _isAssignment => _selectedType == ContentType.assignment;
+
+  TimeOfDay? _startTime;
+  TimeOfDay? _endTime;
 
   @override
   void dispose() {
@@ -78,16 +95,120 @@ class _CreateContentScreenState extends State<CreateContentScreen> {
   }
 
   Future<void> _pickDueDate() async {
-    final now = DateTime.now();
-    final picked = await showDatePicker(
+    DateTime tempDate = _dueDate ?? DateTime.now();
+    
+    await showDialog(
       context: context,
-      initialDate: _dueDate ?? now,
-      firstDate: DateTime(now.year - 1),
-      lastDate: DateTime(now.year + 5),
+      builder: (context) => StatefulBuilder(
+        builder: (context, setDialogState) {
+          final busyNote = _busyDates[DateTime(tempDate.year, tempDate.month, tempDate.day)];
+          
+          return AlertDialog(
+            title: const Text('Select Date', style: TextStyle(color: Color(0xFF1D2B64))),
+            content: SizedBox(
+              width: 350,
+              height: 480,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  TableCalendar(
+                    firstDay: DateTime.now().subtract(const Duration(days: 365)),
+                    lastDay: DateTime.now().add(const Duration(days: 365 * 5)),
+                    focusedDay: tempDate,
+                    selectedDayPredicate: (day) => isSameDay(tempDate, day),
+                    onDaySelected: (selectedDay, focusedDay) {
+                      setDialogState(() {
+                        tempDate = selectedDay;
+                      });
+                    },
+                    calendarStyle: CalendarStyle(
+                      selectedDecoration: const BoxDecoration(
+                        color: Color(0xFF7A6CF5),
+                        shape: BoxShape.circle,
+                      ),
+                      todayDecoration: BoxDecoration(
+                        color: const Color(0xFF7A6CF5).withOpacity(0.3),
+                        shape: BoxShape.circle,
+                      ),
+                    ),
+                    calendarBuilders: CalendarBuilders(
+                      defaultBuilder: (context, day, focusedDay) {
+                        for (var busyDate in _busyDates.keys) {
+                          if (isSameDay(day, busyDate)) {
+                            return Container(
+                              margin: const EdgeInsets.all(4.0),
+                              alignment: Alignment.center,
+                              decoration: const BoxDecoration(
+                                color: Colors.grey,
+                                shape: BoxShape.circle,
+                              ),
+                              child: Text(
+                                '${day.day}',
+                                style: const TextStyle(color: Colors.white),
+                              ),
+                            );
+                          }
+                        }
+                        return null;
+                      },
+                    ),
+                    headerStyle: const HeaderStyle(
+                      formatButtonVisible: false,
+                      titleCentered: true,
+                    ),
+                  ),
+                  const Spacer(),
+                  if (busyNote != null)
+                    Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: Colors.orange.withOpacity(0.1),
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: Colors.orange.withOpacity(0.3)),
+                      ),
+                      child: Row(
+                        children: [
+                          const Icon(Icons.info_outline, size: 20, color: Colors.orange),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: Text(
+                              busyNote,
+                              style: const TextStyle(
+                                fontSize: 13,
+                                color: Colors.orange,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                ],
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text('Cancel', style: TextStyle(color: Colors.grey)),
+              ),
+              ElevatedButton(
+                onPressed: () {
+                  setState(() {
+                    _dueDate = tempDate;
+                  });
+                  Navigator.pop(context);
+                },
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFF7A6CF5),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                ),
+                child: const Text('OK'),
+              ),
+            ],
+          );
+        },
+      ),
     );
-    if (picked != null) {
-      setState(() => _dueDate = picked);
-    }
   }
 
   Future<void> _pickDueTime() async {
@@ -96,8 +217,53 @@ class _CreateContentScreenState extends State<CreateContentScreen> {
       initialTime: _dueTime ?? TimeOfDay.now(),
     );
     if (picked != null) {
-      setState(() => _dueTime = picked);
+      setState(() {
+        _dueTime = picked;
+      });
     }
+  }
+
+  Future<void> _pickStartTime() async {
+    final picked = await showTimePicker(
+      context: context,
+      initialTime: _startTime ?? TimeOfDay.now(),
+    );
+    if (picked != null) {
+      setState(() {
+        _startTime = picked;
+      });
+    }
+  }
+
+  Future<void> _pickEndTime() async {
+    final picked = await showTimePicker(
+      context: context,
+      initialTime: _endTime ?? TimeOfDay.now(),
+    );
+    if (picked != null) {
+      setState(() {
+        _endTime = picked;
+      });
+    }
+  }
+
+  Future<void> _pickFile() async {
+    try {
+      final FilePickerResult? result = await FilePicker.platform.pickFiles();
+      if (result != null && result.files.single.name.isNotEmpty) {
+        setState(() {
+          _selectedFileName = result.files.single.name;
+        });
+      }
+    } catch (e) {
+      debugPrint('Error picking file: $e');
+    }
+  }
+
+  void _removeFile() {
+    setState(() {
+      _selectedFileName = null;
+    });
   }
 
   @override
@@ -133,7 +299,13 @@ class _CreateContentScreenState extends State<CreateContentScreen> {
                       ),
                       child: IconButton(
                         icon: const Icon(Icons.arrow_back, color: Colors.white),
-                        onPressed: () => Navigator.of(context).maybePop(),
+                        onPressed: () {
+                          if (context.canPop()) {
+                            context.pop();
+                          } else {
+                            context.go('/courses');
+                          }
+                        },
                       ),
                     ),
                     const SizedBox(width: 12),
@@ -175,11 +347,13 @@ class _CreateContentScreenState extends State<CreateContentScreen> {
                     padding: const EdgeInsets.all(16),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: [
+                       children: [
                         _buildContentTypeSection(),
                         const SizedBox(height: 16),
-                        _buildCourseSection(theme),
-                        const SizedBox(height: 16),
+                        if (_isExam) ...[
+                          _buildExamTypeSection(),
+                          const SizedBox(height: 16),
+                        ],
                         _buildDetailsSection(theme),
                         const SizedBox(height: 16),
 
@@ -189,9 +363,12 @@ class _CreateContentScreenState extends State<CreateContentScreen> {
                           const SizedBox(height: 16),
                         ],
 
-                        _buildAttachmentSection(),
-                        const SizedBox(height: 16),
+                        if ((!_isExam && _selectedType != ContentType.announcement) || _isOnlineExam) ...[
+                          _buildAttachmentSection(),
+                          const SizedBox(height: 16),
+                        ],
                         _buildBottomButtons(theme),
+                        const SizedBox(height: 120), // Significant padding at the bottom for better visibility
                       ],
                     ),
                   ),
@@ -283,45 +460,68 @@ class _CreateContentScreenState extends State<CreateContentScreen> {
     );
   }
 
-  Widget _buildCourseSection(ThemeData theme) {
+  Widget _buildExamTypeSection() {
     return Container(
       padding: const EdgeInsets.all(12),
       decoration: _whiteCardDecoration,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          const Text(
+            'Select Exam Type',
+            style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+          ),
+          const SizedBox(height: 12),
           Row(
-            children: const [
-              Icon(
-                Icons.menu_book_outlined,
-                size: 18,
-                color: Color(0xFF26C2FF),
+            children: [
+              _buildTypeChip(
+                'Online',
+                Icons.computer,
+                _selectedExamType == ExamType.online,
+                () => setState(() => _selectedExamType = ExamType.online),
               ),
-              SizedBox(width: 6),
-              Text(
-                'Course',
-                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+              const SizedBox(width: 8),
+              _buildTypeChip(
+                'Offline',
+                Icons.location_on_outlined,
+                _selectedExamType == ExamType.offline,
+                () => setState(() => _selectedExamType = ExamType.offline),
               ),
             ],
           ),
-          const SizedBox(height: 8),
-          DropdownButtonFormField<String>(
-            value: _selectedCourse,
-            decoration: _roundedFieldDecoration.copyWith(
-              hintText: 'Select course',
-            ),
-            items: [
-              'MATH101 - Calculus I',
-              'CS201 - Data Structures',
-              'PHY110 - Physics I',
-            ].map((e) => DropdownMenuItem(value: e, child: Text(e))).toList(),
-            onChanged: (value) {
-              if (value != null) {
-                setState(() => _selectedCourse = value);
-              }
-            },
-          ),
         ],
+      ),
+    );
+  }
+
+  Widget _buildTypeChip(String label, IconData icon, bool selected, VoidCallback onTap) {
+    return GestureDetector(
+      onTap: onTap,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 150),
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+        decoration: BoxDecoration(
+          color: selected ? const Color(0xFFE7E5FF) : const Color(0xFFF5F6FF),
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(
+            color: selected ? const Color(0xFF7A6CF5) : Colors.grey.shade300,
+            width: selected ? 1.6 : 1,
+          ),
+        ),
+        child: Row(
+          children: [
+            Icon(icon, size: 18, color: selected ? const Color(0xFF7A6CF5) : Colors.grey.shade700),
+            const SizedBox(width: 6),
+            Text(
+              label,
+              style: TextStyle(
+                color: selected ? Colors.black : Colors.black87,
+                fontSize: 13,
+                fontWeight: selected ? FontWeight.bold : FontWeight.normal,
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -371,12 +571,12 @@ class _CreateContentScreenState extends State<CreateContentScreen> {
 
   Widget _buildDeadlineSection(ThemeData theme) {
     final dateText = _dueDate == null
-        ? 'dd/mm/yyyy'
+        ? 'Insert Date'
         : '${_dueDate!.day.toString().padLeft(2, '0')}/'
               '${_dueDate!.month.toString().padLeft(2, '0')}/'
               '${_dueDate!.year}';
 
-    final timeText = _dueTime == null ? '--:--' : _dueTime!.format(context);
+    final busyInfo = _dueDate != null ? _busyDates[_dueDate] : null;
 
     return Container(
       padding: const EdgeInsets.all(12),
@@ -386,48 +586,211 @@ class _CreateContentScreenState extends State<CreateContentScreen> {
         children: [
           Row(
             children: const [
-              Icon(Icons.lock_clock, size: 18, color: Color(0xFFF6A400)),
+              Icon(Icons.calendar_month, size: 18, color: Color(0xFFF6A400)),
               SizedBox(width: 6),
               Text(
-                'Deadline & Grading',
+                'Scheduling',
                 style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
               ),
             ],
           ),
           const SizedBox(height: 12),
-          Row(
-            children: [
-              Expanded(
-                child: GestureDetector(
-                  onTap: _pickDueDate,
-                  child: AbsorbPointer(
-                    child: TextFormField(
-                      decoration: _roundedFieldDecoration.copyWith(
-                        labelText: 'Due Date',
-                        hintText: dateText,
-                        suffixIcon: const Icon(Icons.calendar_today_rounded),
+          Material(
+            color: Colors.transparent,
+            child: InkWell(
+              onTap: () => _pickDueDate(),
+              borderRadius: BorderRadius.circular(16),
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                decoration: BoxDecoration(
+                  color: Colors.white.withOpacity(0.5),
+                  borderRadius: BorderRadius.circular(16),
+                ),
+                child: Row(
+                  children: [
+                    const Icon(Icons.calendar_today, size: 20, color: Color(0xFF7A6CF5)),
+                    const SizedBox(width: 12),
+                    Text(
+                      dateText,
+                      style: TextStyle(
+                        color: _dueDate == null ? Colors.grey.shade600 : Colors.black,
+                        fontSize: 14,
                       ),
                     ),
-                  ),
+                    const Spacer(),
+                    const Icon(Icons.arrow_drop_down, color: Colors.grey),
+                  ],
                 ),
               ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: GestureDetector(
-                  onTap: _pickDueTime,
-                  child: AbsorbPointer(
-                    child: TextFormField(
-                      decoration: _roundedFieldDecoration.copyWith(
-                        labelText: 'Due Time',
-                        hintText: timeText,
-                        suffixIcon: const Icon(Icons.access_time_filled),
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-            ],
+            ),
           ),
+          
+          // Display conflict note if selected date is busy
+          if (busyInfo != null) ...[
+            const SizedBox(height: 8),
+            Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: Colors.red.withOpacity(0.1),
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: Colors.red.withOpacity(0.3)),
+              ),
+              child: Row(
+                children: [
+                  const Icon(Icons.warning_amber_rounded, size: 16, color: Colors.red),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      busyInfo,
+                      style: const TextStyle(fontSize: 12, color: Colors.red, fontWeight: FontWeight.w600),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+
+          const SizedBox(height: 16),
+          if (_isOnlineExam) ...[
+            Row(
+              children: [
+                Expanded(
+                  child: Material(
+                    color: Colors.transparent,
+                    child: InkWell(
+                      onTap: () => _pickDueTime(),
+                      borderRadius: BorderRadius.circular(16),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                        decoration: BoxDecoration(
+                          color: Colors.white.withOpacity(0.5),
+                          borderRadius: BorderRadius.circular(16),
+                        ),
+                        child: Row(
+                          children: [
+                            const Icon(Icons.access_time, size: 20, color: Color(0xFF7A6CF5)),
+                            const SizedBox(width: 12),
+                            Text(
+                              _dueTime == null ? 'Start Time' : _dueTime!.format(context),
+                              style: TextStyle(
+                                color: _dueTime == null ? Colors.grey.shade600 : Colors.black,
+                                fontSize: 14,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: TextFormField(
+                    keyboardType: TextInputType.number,
+                    decoration: _roundedFieldDecoration.copyWith(
+                      labelText: 'Duration (Min)',
+                      hintText: 'e.g., 60',
+                      prefixIcon: const Icon(Icons.timer_outlined, color: Color(0xFF7A6CF5), size: 20),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ] else if (_isAssignment) ...[
+            Row(
+              children: [
+                Expanded(
+                  child: Material(
+                    color: Colors.transparent,
+                    child: InkWell(
+                      onTap: () => _pickStartTime(),
+                      borderRadius: BorderRadius.circular(16),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                        decoration: BoxDecoration(
+                          color: Colors.white.withOpacity(0.5),
+                          borderRadius: BorderRadius.circular(16),
+                        ),
+                        child: Row(
+                          children: [
+                            const Icon(Icons.start, size: 20, color: Color(0xFF7A6CF5)),
+                            const SizedBox(width: 12),
+                            Text(
+                              _startTime == null ? 'Start Time' : _startTime!.format(context),
+                              style: TextStyle(
+                                color: _startTime == null ? Colors.grey.shade600 : Colors.black,
+                                fontSize: 13,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Material(
+                    color: Colors.transparent,
+                    child: InkWell(
+                      onTap: () => _pickEndTime(),
+                      borderRadius: BorderRadius.circular(16),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                        decoration: BoxDecoration(
+                          color: Colors.white.withOpacity(0.5),
+                          borderRadius: BorderRadius.circular(16),
+                        ),
+                        child: Row(
+                          children: [
+                            const Icon(Icons.event_busy, size: 20, color: Color(0xFF7A6CF5)),
+                            const SizedBox(width: 12),
+                            Text(
+                              _endTime == null ? 'End Time' : _endTime!.format(context),
+                              style: TextStyle(
+                                color: _endTime == null ? Colors.grey.shade600 : Colors.black,
+                                fontSize: 13,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ] else ...[
+            Material(
+              color: Colors.transparent,
+              child: InkWell(
+                onTap: () => _pickDueTime(),
+                borderRadius: BorderRadius.circular(16),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withOpacity(0.5),
+                    borderRadius: BorderRadius.circular(16),
+                  ),
+                  child: Row(
+                    children: [
+                      const Icon(Icons.access_time, size: 20, color: Color(0xFF7A6CF5)),
+                      const SizedBox(width: 12),
+                      Text(
+                        _dueTime == null ? 'Time' : _dueTime!.format(context),
+                        style: TextStyle(
+                          color: _dueTime == null ? Colors.grey.shade600 : Colors.black,
+                          fontSize: 14,
+                        ),
+                      ),
+                      const Spacer(),
+                      const Icon(Icons.arrow_drop_down, color: Colors.grey),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ],
           const SizedBox(height: 12),
           TextFormField(
             controller: _pointsController,
@@ -460,30 +823,61 @@ class _CreateContentScreenState extends State<CreateContentScreen> {
             ],
           ),
           const SizedBox(height: 12),
-          DottedBorderBox(
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: const [
-                Icon(
-                  Icons.cloud_upload_outlined,
-                  size: 34,
-                  color: Color(0xFF7A6CF5),
+          if (_selectedFileName != null)
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: const Color(0xFFF7F8FF),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: const Color(0xFF7A6CF5).withOpacity(0.3)),
+              ),
+              child: Row(
+                children: [
+                  const Icon(Icons.insert_drive_file, color: Color(0xFF7A6CF5)),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Text(
+                      _selectedFileName!,
+                      style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w500),
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.close, size: 20, color: Colors.red),
+                    onPressed: _removeFile,
+                  ),
+                ],
+              ),
+            )
+          else
+            GestureDetector(
+              onTap: _pickFile,
+              behavior: HitTestBehavior.opaque,
+              child: DottedBorderBox(
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: const [
+                    Icon(
+                      Icons.cloud_upload_outlined,
+                      size: 34,
+                      color: Color(0xFF7A6CF5),
+                    ),
+                    SizedBox(height: 8),
+                    Text(
+                      'Click to upload or drag and drop',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(fontSize: 12),
+                    ),
+                    SizedBox(height: 4),
+                    Text(
+                      'PDF, DOC, DOCX, PPT, PPTX (max 10MB)',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(fontSize: 11, color: Colors.grey),
+                    ),
+                  ],
                 ),
-                SizedBox(height: 8),
-                Text(
-                  'Click to upload or drag and drop',
-                  textAlign: TextAlign.center,
-                  style: TextStyle(fontSize: 12),
-                ),
-                SizedBox(height: 4),
-                Text(
-                  'PDF, DOC, DOCX, PPT, PPTX (max 10MB)',
-                  textAlign: TextAlign.center,
-                  style: TextStyle(fontSize: 11, color: Colors.grey),
-                ),
-              ],
+              ),
             ),
-          ),
         ],
       ),
     );
@@ -510,17 +904,52 @@ class _CreateContentScreenState extends State<CreateContentScreen> {
         ),
         const SizedBox(width: 12),
         Expanded(
-          child: ElevatedButton(
+           child: ElevatedButton(
             style: ElevatedButton.styleFrom(
-              padding: const EdgeInsets.symmetric(vertical: 14),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(24),
-              ),
               backgroundColor: const Color(0xFF7A6CF5),
+              padding: const EdgeInsets.symmetric(horizontal: 48, vertical: 14),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
             ),
-            onPressed: () {},
+            onPressed: () async {
+              if (_titleController.text.isEmpty) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('Please enter a title')),
+                );
+                return;
+              }
+
+              final String id = DateTime.now().millisecondsSinceEpoch.toString();
+              final String typeLabel = _contentTypeLabels[_selectedType] ?? 'Content';
+              
+              final newTask = Task(
+                id: id,
+                title: '${_titleController.text} ($typeLabel)',
+                subject: widget.courseId,
+                dueDate: _dueDate ?? DateTime.now().add(const Duration(days: 7)),
+                status: TaskStatus.pending,
+                priority: TaskPriority.medium,
+                description: _descriptionController.text,
+                createdAt: DateTime.now(),
+              );
+
+              try {
+                await ref.read(taskControllerProvider.notifier).createTask(newTask);
+                if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text('Successfully added to your Notes!')),
+                  );
+                  context.pop();
+                }
+              } catch (e) {
+                if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text('Error: $e')),
+                  );
+                }
+              }
+            },
             child: const Text(
-              'Publish Content',
+              'Send',
               style: TextStyle(fontWeight: FontWeight.bold),
             ),
           ),

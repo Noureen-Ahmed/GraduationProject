@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import '../providers/announcement_provider.dart';
 import '../providers/app_mode_provider.dart';
+import '../storage_services.dart';
 import 'user_avatar.dart';
 
 class CustomHeader extends ConsumerWidget {
@@ -69,6 +70,11 @@ class CustomHeader extends ConsumerWidget {
             error: (_, __) => const Icon(Icons.error, color: Colors.red),
           ),
           const Spacer(),
+          if (userAsync.when(
+            data: (user) => user != null && !StorageService.isDoctorEmail(user.email),
+            loading: () => true,
+            error: (_, __) => true,
+          ))
           GestureDetector(
             onTap: () => context.go('/notifications'),
             child: Container(

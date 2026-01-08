@@ -20,6 +20,7 @@ class ProfileScreen extends ConsumerWidget {
       body: userAsync.when(
         data: (user) {
           if (user == null) return const Center(child: Text('User not found'));
+          final isDoctor = StorageService.isDoctorEmail(user.email);
 
           return CustomScrollView(
             slivers: [
@@ -30,7 +31,7 @@ class ProfileScreen extends ConsumerWidget {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      _buildAcademicStats(context, user),
+                      _buildAcademicStats(context, user, isDoctor),
                       const SizedBox(height: 32),
                       _buildSectionHeader('General Settings'),
                       const SizedBox(height: 12),
@@ -38,7 +39,9 @@ class ProfileScreen extends ConsumerWidget {
                         _buildSettingsTile(
                           icon: Icons.person_outline,
                           title: 'Edit Profile',
-                          subtitle: 'Change your name, level, or department',
+                          subtitle: isDoctor 
+                              ? 'Change your name, department, or office hours' 
+                              : 'Change your name, level, or department',
                           onTap: () => Navigator.push(
                             context,
                             MaterialPageRoute(builder: (context) => const EditProfileScreen()),
@@ -51,17 +54,19 @@ class ProfileScreen extends ConsumerWidget {
                           onTap: () => _showChangePasswordDialog(context, ref),
                         ),
                       ]),
-                      const SizedBox(height: 32),
-                      _buildSectionHeader('Application'),
-                      const SizedBox(height: 12),
-                      _buildListCard([
-                        _buildSettingsTile(
-                          icon: Icons.info_outline,
-                          title: 'About Student Dash',
-                          subtitle: 'Learn more about your academic companion',
-                          onTap: () => _showAboutDialog(context),
-                        ),
-                      ]),
+                      if (!isDoctor) ...[
+                        const SizedBox(height: 32),
+                        _buildSectionHeader('Application'),
+                        const SizedBox(height: 12),
+                        _buildListCard([
+                          _buildSettingsTile(
+                            icon: Icons.info_outline,
+                            title: 'About Student Dash',
+                            subtitle: 'Learn more about your academic companion',
+                            onTap: () => _showAboutDialog(context),
+                          ),
+                        ]),
+                      ],
                       const SizedBox(height: 48),
                       _buildLogoutButton(context, ref),
                       const SizedBox(height: 100), // Bottom navigation padding
@@ -161,13 +166,15 @@ class ProfileScreen extends ConsumerWidget {
     );
   }
 
-  Widget _buildAcademicStats(BuildContext context, User user) {
+  Widget _buildAcademicStats(BuildContext context, User user, bool isDoctor) {
     return Row(
       children: [
-        Expanded(child: _buildStatItem('GPA', user.gpa?.toString() ?? 'N/A', Colors.amber)),
-        const SizedBox(width: 12),
-        Expanded(child: _buildStatItem('Level', user.level?.toString() ?? 'N/A', Colors.green)),
-        const SizedBox(width: 12),
+        if (!isDoctor) ...[
+          Expanded(child: _buildStatItem('GPA', user.gpa?.toString() ?? 'N/A', Colors.amber)),
+          const SizedBox(width: 12),
+          Expanded(child: _buildStatItem('Level', user.level?.toString() ?? 'N/A', Colors.green)),
+          const SizedBox(width: 12),
+        ],
         Expanded(child: _buildStatItem('Courses', user.enrolledCourses.length.toString(), Colors.blue)),
       ],
     );

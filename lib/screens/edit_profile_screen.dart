@@ -6,6 +6,7 @@ import '../providers/app_session_provider.dart';
 import '../providers/app_mode_provider.dart';
 import '../models/user.dart';
 import '../widgets/user_avatar.dart';
+import '../storage_services.dart';
 
 class EditProfileScreen extends ConsumerStatefulWidget {
   const EditProfileScreen({super.key});
@@ -108,6 +109,8 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final user = ref.watch(currentUserProvider).value;
+    final isDoctor = user != null && StorageService.isDoctorEmail(user.email);
     const navyColor = Color(0xFF002147);
     const goldColor = Color(0xFFFDC800);
     const bgColor = Color(0xFFF8F9FA);
@@ -183,28 +186,30 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
                 label: 'Department',
                 icon: Icons.business_outlined,
               ),
-              const SizedBox(height: 20),
-              Row(
-                children: [
-                  Expanded(
-                    child: _buildTextField(
-                      controller: _levelController,
-                      label: 'Level',
-                      icon: Icons.grid_view,
-                      keyboardType: TextInputType.number,
+              if (!isDoctor) ...[
+                const SizedBox(height: 20),
+                Row(
+                  children: [
+                    Expanded(
+                      child: _buildTextField(
+                        controller: _levelController,
+                        label: 'Level',
+                        icon: Icons.grid_view,
+                        keyboardType: TextInputType.number,
+                      ),
                     ),
-                  ),
-                  const SizedBox(width: 16),
-                  Expanded(
-                    child: _buildTextField(
-                      controller: _gpaController,
-                      label: 'GPA',
-                      icon: Icons.star_border,
-                      keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                    const SizedBox(width: 16),
+                    Expanded(
+                      child: _buildTextField(
+                        controller: _gpaController,
+                        label: 'GPA',
+                        icon: Icons.star_border,
+                        keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                      ),
                     ),
-                  ),
-                ],
-              ),
+                  ],
+                ),
+              ],
               const SizedBox(height: 40),
             ],
           ),

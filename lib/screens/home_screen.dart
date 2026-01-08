@@ -215,9 +215,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                                   color: Color(0xFF16A34A), // green-600
                                 ),
                                 backgroundColor: const Color(0xFFF0FDF4), // green-50
-                                onTap: () => widget.isDoctor
-                                    ? context.go('/dr-course/1')
-                                    : context.go('/course/1'),
+                                onTap: () => context.go('/courses'),
                               ),
                             ],
                           ),
